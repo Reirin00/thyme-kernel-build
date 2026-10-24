@@ -94,6 +94,15 @@ jobs:
           add "CONFIG_ZSTD_COMPRESS=y"
           add "CONFIG_ZSTD_DECOMPRESS=y"
 
+          # ===== 调度：UClamp（性能和省电的关键）=====
+          # 允许任务声明性能上下限：前台保性能、后台压功耗
+          add "CONFIG_UCLAMP_TASK=y"
+          add "CONFIG_UCLAMP_TASK_GROUP=y"
+
+          # ===== 省电 =====
+          add "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y"   # 空闲时用低功耗 workqueue
+          add "CONFIG_PM_AUTOSLEEP=y"                 # 无 wakelock 时自动 suspend
+
           # ===== ZRAM 默认算法改 zstd（choice，必须清同组）=====
           set_choice "ZRAM_DEF_COMP_" "ZRAM_DEF_COMP_ZSTD"
 
