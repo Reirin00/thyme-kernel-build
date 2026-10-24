@@ -90,11 +90,16 @@ jobs:
           add "CONFIG_TCP_CONG_BBR=y"
           add 'CONFIG_DEFAULT_TCP_CONG="bbr"'
           add "CONFIG_NET_SCH_FQ=y"
+          add "CONFIG_NET_SCH_FQ_CODEL=y"          # 通用队列（WiFi / 热点共享）
 
           # 备选拥塞控制（不影响默认值，只是多给几个可切换选项）
           add "CONFIG_TCP_CONG_WESTWOOD=y"
           add "CONFIG_TCP_CONG_HTCP=y"
           add "CONFIG_TCP_CONG_VEGAS=y"
+
+          # kprobe：不注册时零运行时开销；留着以后换 kprobe 版 KSU 或跑 bpftrace
+          add "CONFIG_KPROBES=y"
+          add "CONFIG_KPROBE_EVENTS=y"
 
           # ===== 内存 =====
           # KSM 刻意不加：ksmd 后台持续扫描内存吃 CPU，ZRAM 场景下收益小
