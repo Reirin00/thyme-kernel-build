@@ -77,6 +77,13 @@ jobs:
             echo "CONFIG_${target}=y" >> "$D"
             echo "  ~ choice: ${target}=y (清除同组其他)"
           }
+          # 强制关闭某个 config（写显式 not-set）
+          remove_cfg() {
+            local k="$1"
+            sed -i "/^${k}=/d; /^# ${k} is not set/d" "$D"
+            echo "# ${k} is not set" >> "$D"
+            echo "  - ${k} (强制关闭)"
+          }
 
           # ===== 网络：BBR（必须三件套齐全）=====
           add "CONFIG_TCP_CONG_ADVANCED=y"          # ★ BBR 的父菜单，缺了下面全白写
@@ -90,7 +97,11 @@ jobs:
           add "CONFIG_TCP_CONG_VEGAS=y"
 
           # ===== 内存 =====
-          add "CONFIG_KSM=y"
+          # KSM 刻意不加：ksmd 后台持续扫描内存吃 CPU，ZRAM 场景下收益小
+          # （defconfig 里 KSM 未提 = Kconfig 默认 n，所以什么都不用写）
+          remove_cfg "CONFIG_KSM"
+          echo "  - KSM 保持关闭（默认 n）"
+
           add "CONFIG_ZSTD_COMPRESS=y"
           add "CONFIG_ZSTD_DECOMPRESS=y"
 
@@ -104,7 +115,11 @@ jobs:
           add "CONFIG_PM_AUTOSLEEP=y"                 # 无 wakelock 时自动 suspend
 
           # ===== ZRAM 默认算法改 zstd（choice，必须清同组）=====
-          set_choice "ZRAM_DEF_COMP_" "ZRAM_DEF_COMP_ZSTD"
+          # ===== ZRAM 默认算法用 LZ4（choice，必须清同组）=====
+          # LZ4 压缩/解压速度远快于 ZSTD → 换页时 CPU 开销低 → 更省电
+          # 注意：ARM64 硬件加速只有 AES/SHA/CRC32，不含 LZ4（LZ4 是纯软件算法）
+          # ZSTD 仍编进内核，运行时可用 `echo zstd > /sys/block/zram0/comp_algorithm` 切回去
+          set_choice "ZRAM_DEF_COMP_" "ZRAM_DEF_COMP_LZ4"
 
           # ===== I/O 调度 =====
           add "CONFIG_MQ_IOSCHED_KYBER=y"
@@ -116,7 +131,7 @@ jobs:
 
           echo ""
           echo "=== 修改后核对 ==="
-          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|ZRAM_DEF_COMPKSM=|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
+          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|UCLAMP|ZRAM_DEF_COMP|KSM|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
 
       - name: "Integrate KernelSU"
         if: ${{ inputs.enable_ksu }}
