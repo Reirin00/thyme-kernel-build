@@ -1,0 +1,186 @@
+name: "Build thyme Kernel"
+
+# 用法：仓库 → Actions → Build thyme Kernel → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: "内核源码仓库"
+        required: true
+        default: "https://github.com/cctv18/kernel_xiaomi_sm8250_mod"
+      kernel_branch:
+        description: "分支"
+        required: true
+        default: "android14-lineage22-mod"
+      defconfig:
+        description: "defconfig 名字"
+        required: true
+        default: "thyme_defconfig"
+      enable_ksu:
+        description: "集成 KernelSU"
+        type: boolean
+        default: false
+      apply_features:
+        description: "应用 BBR 等自定义功能"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: "Build thyme"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: "Checkout builder"
+        uses: actions/checkout@v4
+
+      - name: "Install dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi zip unzip wget curl git
+
+      - name: "Clone kernel source"
+        run: |
+          git clone --recursive --depth=1 -j$(nproc) \
+            --branch "${{ inputs.kernel_branch }}" \
+            "${{ inputs.kernel_repo }}" kernel
+
+      - name: "Clone proton-clang"
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git proton-clang
+          chmod +x proton-clang/bin/* || true
+          echo "$PWD/proton-clang/bin" >> $GITHUB_PATH
+
+      - name: "Apply custom features (BBR / IPSet / KSM / ZSTD / Kyber)"
+        if: ${{ inputs.apply_features }}
+        working-directory: kernel
+        run: |
+          D="arch/arm64/configs/${{ inputs.defconfig }}"
+          echo "=== target defconfig: $D ==="
+          ls -la "$D" || { echo "defconfig 不存在"; exit 1; }
+
+          add() {
+            local k="$1"
+            if ! grep -q "^${k%%=*}=" "$D"; then
+              echo "$k" >> "$D"
+              echo "  + $k"
+            else
+              echo "  = $k (已存在，跳过)"
+            fi
+          }
+          # choice 类型：先删掉所有同组选项，再写入目标
+          set_choice() {
+            local prefix="$1" target="$2"
+            sed -i "/^CONFIG_${prefix}/d; /^# CONFIG_${prefix}.* is not set/d" "$D"
+            echo "CONFIG_${target}=y" >> "$D"
+            echo "  ~ choice: ${target}=y (清除同组其他)"
+          }
+
+          # ===== 网络：BBR（必须三件套齐全）=====
+          add "CONFIG_TCP_CONG_ADVANCED=y"          # ★ BBR 的父菜单，缺了下面全白写
+          add "CONFIG_TCP_CONG_BBR=y"
+          add 'CONFIG_DEFAULT_TCP_CONG="bbr"'
+          add "CONFIG_NET_SCH_FQ=y"
+
+          # 备选拥塞控制（不影响默认值，只是多给几个可切换选项）
+          add "CONFIG_TCP_CONG_WESTWOOD=y"
+          add "CONFIG_TCP_CONG_HTCP=y"
+          add "CONFIG_TCP_CONG_VEGAS=y"
+
+          # ===== 网络安全 =====
+          add "CONFIG_IP_SET=y"
+          add "CONFIG_IP_SET_MAX=256"
+          add "CONFIG_NETFILTER_XT_SET=y"
+
+          # ===== 内存 =====
+          add "CONFIG_KSM=y"
+          add "CONFIG_ZSTD_COMPRESS=y"
+          add "CONFIG_ZSTD_DECOMPRESS=y"
+
+          # ===== ZRAM 默认算法改 zstd（choice，必须清同组）=====
+          set_choice "ZRAM_DEF_COMP_" "ZRAM_DEF_COMP_ZSTD"
+
+          # ===== I/O 调度 =====
+          add "CONFIG_MQ_IOSCHED_KYBER=y"
+
+          # ===== 可选：挂载支持 =====
+          add "CONFIG_SQUASHFS=y"
+          add "CONFIG_SQUASHFS_ZSTD=y"
+          add "CONFIG_CIFS=y"
+
+          echo ""
+          echo "=== 修改后核对 ==="
+          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|ZRAM_DEF_COMP|IP_SET=|KSM=|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
+
+      - name: "Integrate KernelSU"
+        if: ${{ inputs.enable_ksu }}
+        working-directory: kernel
+        run: |
+          D="arch/arm64/configs/${{ inputs.defconfig }}"
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash - || \
+            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
+          echo "CONFIG_KPROBES=y" >> "$D"
+          echo "CONFIG_KPROBE_EVENTS=y" >> "$D"
+          echo "CONFIG_HAVE_KPROBES=y" >> "$D"
+
+      - name: "Make defconfig"
+        working-directory: kernel
+        run: |
+          mkdir -p out
+          make O=out ARCH=arm64 \
+            CC="$PWD/../proton-clang/bin/clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$PWD/../proton-clang/bin/aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="$PWD/../proton-clang/bin/arm-linux-gnueabi-" \
+            LD="$PWD/../proton-clang/bin/ld.lld" \
+            AR="$PWD/../proton-clang/bin/llvm-ar" \
+            NM="$PWD/../proton-clang/bin/llvm-nm" \
+            OBJCOPY="$PWD/../proton-clang/bin/llvm-objcopy" \
+            OBJDUMP="$PWD/../proton-clang/bin/llvm-objdump" \
+            READELF="$PWD/../proton-clang/bin/llvm-readelf" \
+            STRIP="$PWD/../proton-clang/bin/llvm-strip" \
+            "${{ inputs.defconfig }}"
+
+      - name: "Build kernel"
+        working-directory: kernel
+        run: |
+          make O=out ARCH=arm64 -j$(nproc) \
+            CC="$PWD/../proton-clang/bin/clang" \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE="$PWD/../proton-clang/bin/aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="$PWD/../proton-clang/bin/arm-linux-gnueabi-" \
+            LD="$PWD/../proton-clang/bin/ld.lld" \
+            AR="$PWD/../proton-clang/bin/llvm-ar" \
+            NM="$PWD/../proton-clang/bin/llvm-nm" \
+            OBJCOPY="$PWD/../proton-clang/bin/llvm-objcopy" \
+            OBJDUMP="$PWD/../proton-clang/bin/llvm-objdump" \
+            READELF="$PWD/../proton-clang/bin/llvm-readelf" \
+            STRIP="$PWD/../proton-clang/bin/llvm-strip"
+
+      - name: "Verify build output"
+        run: |
+          ls -la kernel/out/arch/arm64/boot/
+          file kernel/out/arch/arm64/boot/Image
+          echo "=== 确认 BBR 编进去了 ==="
+          grep -E "CONFIG_TCP_CONG_BBR|CONFIG_NET_SCH_FQ" kernel/out/.config
+
+      - name: "Package with AnyKernel3"
+        run: |
+          git clone --depth=1 -b thyme https://github.com/easterNday/AnyKernel3.git AK3 || \
+            git clone --depth=1 https://github.com/easterNday/AnyKernel3.git AK3
+
+          cp kernel/out/arch/arm64/boot/Image AK3/Image
+          # ⚠️ 故意不打包 dtbo.img：thyme 上重编 dtbo 会导致锁屏闪最高亮度/手势失效/卡槽无信号
+
+          cd AK3
+          rm -rf .git
+          zip -r9 "../thyme-kernel-${{ github.run_number }}.zip" * -x "README.md"
+
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: thyme-kernel-${{ github.run_number }}
+          path: thyme-kernel-${{ github.run_number }}.zip
+          retention-days: 30
