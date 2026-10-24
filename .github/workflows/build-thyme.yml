@@ -89,11 +89,6 @@ jobs:
           add "CONFIG_TCP_CONG_HTCP=y"
           add "CONFIG_TCP_CONG_VEGAS=y"
 
-          # ===== 网络安全 =====
-          add "CONFIG_IP_SET=y"
-          add "CONFIG_IP_SET_MAX=256"
-          add "CONFIG_NETFILTER_XT_SET=y"
-
           # ===== 内存 =====
           add "CONFIG_KSM=y"
           add "CONFIG_ZSTD_COMPRESS=y"
@@ -112,18 +107,25 @@ jobs:
 
           echo ""
           echo "=== 修改后核对 ==="
-          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|ZRAM_DEF_COMP|IP_SET=|KSM=|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
+          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|ZRAM_DEF_COMPKSM=|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
 
       - name: "Integrate KernelSU"
         if: ${{ inputs.enable_ksu }}
         working-directory: kernel
         run: |
           D="arch/arm64/configs/${{ inputs.defconfig }}"
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash - || \
-            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
-          echo "CONFIG_KPROBES=y" >> "$D"
-          echo "CONFIG_KPROBE_EVENTS=y" >> "$D"
-          echo "CONFIG_HAVE_KPROBES=y" >> "$D"
+          # 优先 SukiSU/ReSukiSU —— 它们用 manual hook（inline hook），不依赖 KPROBES
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash - || \
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+
+          # manual hook 只需要符号表（defconfig 里 KALLSYMS_ALL 已开）
+          # 只有在编译报 "KPROBES not enabled" 时，才取消下面三行的注释
+          # echo "CONFIG_KPROBES=y"          >> "$D"
+          # echo "CONFIG_KPROBE_EVENTS=y"    >> "$D"
+          # echo "CONFIG_HAVE_KPROBES=y"     >> "$D"
+
+          echo "=== KSU 相关 config ==="
+          grep -E "KSU|KALLSYMS|KPROBES" "$D" || true
 
       - name: "Make defconfig"
         working-directory: kernel
