@@ -97,9 +97,9 @@ jobs:
           add "CONFIG_TCP_CONG_HTCP=y"
           add "CONFIG_TCP_CONG_VEGAS=y"
 
-          # kprobe：不注册时零运行时开销；留着以后换 kprobe 版 KSU 或跑 bpftrace
-          add "CONFIG_KPROBES=y"
-          add "CONFIG_KPROBE_EVENTS=y"
+          # KSU 走 manual hook（inline hook），不需要 KPROBES
+          # 只依赖 KALLSYMS_ALL —— defconfig 里已经是 y，无需处理
+          echo "  = KSU 用 manual hook（不启用 KPROBES）"
 
           # ===== 内存 =====
           # KSM 刻意不加：ksmd 后台持续扫描内存吃 CPU，ZRAM 场景下收益小
@@ -148,10 +148,7 @@ jobs:
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
           # manual hook 只需要符号表（defconfig 里 KALLSYMS_ALL 已开）
-          # 只有在编译报 "KPROBES not enabled" 时，才取消下面三行的注释
-          # echo "CONFIG_KPROBES=y"          >> "$D"
-          # echo "CONFIG_KPROBE_EVENTS=y"    >> "$D"
-          # echo "CONFIG_HAVE_KPROBES=y"     >> "$D"
+          # 明确要求走 manual hook —— 不加 KPROBES / KPROBE_EVENTS
 
           echo "=== KSU 相关 config ==="
           grep -E "KSU|KALLSYMS|KPROBES" "$D" || true
