@@ -208,9 +208,11 @@ jobs:
             --set-str LOCALVERSION "-perf" \
             --enable TCP_CONG_ADVANCED \
             --enable TCP_CONG_BBR \
+            --disable DEFAULT_TCP_CONG_CUBIC \
             --enable DEFAULT_TCP_CONG_BBR \
             --set-str DEFAULT_TCP_CONG "bbr" \
             --enable NET_SCH_FQ \
+            --disable DEFAULT_FQ_CODEL \
             --enable DEFAULT_FQ \
             --set-str DEFAULT_NET_SCH "fq" \
             --enable NET_SCH_FQ_CODEL \
@@ -220,6 +222,7 @@ jobs:
             --disable KSM \
             --enable ZSTD_COMPRESS \
             --enable ZSTD_DECOMPRESS \
+            --disable ZRAM_DEF_COMP_LZORLE \
             --disable ZRAM_DEF_COMP_LZO \
             --disable ZRAM_DEF_COMP_ZSTD \
             --enable ZRAM_DEF_COMP_LZ4 \
