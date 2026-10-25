@@ -1,214 +1,295 @@
-name: "Build thyme Kernel"
+name: Build thyme Kernel
 
-# 用法：仓库 → Actions → Build thyme Kernel → Run workflow
 on:
   workflow_dispatch:
     inputs:
       kernel_repo:
-        description: "内核源码仓库"
+        description: 'Kernel Source Repository'
         required: true
-        default: "https://github.com/cctv18/kernel_xiaomi_sm8250_mod"
+        default: 'https://github.com/cctv18/kernel_xiaomi_sm8250_mod'
       kernel_branch:
-        description: "分支"
+        description: 'Kernel Source Branch'
         required: true
-        default: "android14-lineage22-mod"
+        default: 'android14-lineage22-mod'
       defconfig:
-        description: "defconfig 名字"
+        description: 'Defconfig Name'
         required: true
-        default: "thyme_defconfig"
-      enable_ksu:
-        description: "集成 KernelSU"
-        type: boolean
-        default: false
+        default: 'thyme_defconfig'
       apply_features:
-        description: "应用 BBR 等自定义功能"
-        type: boolean
-        default: true
+        description: 'Apply BBR/LZ4/Kyber & Source Optimizations'
+        required: true
+        default: 'true'
 
 jobs:
   build:
-    name: "Build thyme"
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
-
+    env:
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo || 'https://github.com/cctv18/kernel_xiaomi_sm8250_mod' }}
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'android14-lineage22-mod' }}
+      DEFCONFIG: ${{ github.event.inputs.defconfig || 'thyme_defconfig' }}
+      APPLY_FEATURES: ${{ github.event.inputs.apply_features || 'true' }}
     steps:
-      - name: "Checkout builder"
+      - name: Checkout Workflow Repo
         uses: actions/checkout@v4
 
-      - name: "Install dependencies"
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi zip unzip wget curl git
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bc bison flex libssl-dev libelf-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            git zip unzip cpio kmod python3 ca-certificates
 
-      - name: "Clone kernel source"
+      - name: Clone Kernel Source
         run: |
-          git clone --recursive --depth=1 -j$(nproc) \
-            --branch "${{ inputs.kernel_branch }}" \
-            "${{ inputs.kernel_repo }}" kernel
+          git clone --recursive --shallow-submodules --depth=1 \
+            -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
 
-      - name: "Clone proton-clang"
+      - name: Clone Proton-Clang Toolchain
         run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git proton-clang
-          chmod +x proton-clang/bin/* || true
-          echo "$PWD/proton-clang/bin" >> $GITHUB_PATH
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang proton-clang
 
-      - name: "Apply custom features (BBR / IPSet / KSM / ZSTD / Kyber)"
-        if: ${{ inputs.apply_features }}
+      - name: Lock Vermagic (Prevent '+' or '-dirty' Suffix)
         working-directory: kernel
         run: |
-          D="arch/arm64/configs/${{ inputs.defconfig }}"
-          echo "=== target defconfig: $D ==="
-          ls -la "$D" || { echo "defconfig 不存在"; exit 1; }
+          sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
+          sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/g' scripts/setlocalversion
 
-          add() {
-            local k="$1"
-            if ! grep -q "^${k%%=*}=" "$D"; then
-              echo "$k" >> "$D"
-              echo "  + $k"
-            else
-              echo "  = $k (已存在，跳过)"
-            fi
-          }
-          # choice 类型：先删掉所有同组选项，再写入目标
-          set_choice() {
-            local prefix="$1" target="$2"
-            sed -i "/^CONFIG_${prefix}/d; /^# CONFIG_${prefix}.* is not set/d" "$D"
-            echo "CONFIG_${target}=y" >> "$D"
-            echo "  ~ choice: ${target}=y (清除同组其他)"
-          }
-          # 强制关闭某个 config（写显式 not-set）
-          remove_cfg() {
-            local k="$1"
-            sed -i "/^${k}=/d; /^# ${k} is not set/d" "$D"
-            echo "# ${k} is not set" >> "$D"
-            echo "  - ${k} (强制关闭)"
-          }
-
-          # ===== 网络：BBR（必须三件套齐全）=====
-          add "CONFIG_TCP_CONG_ADVANCED=y"          # ★ BBR 的父菜单，缺了下面全白写
-          add "CONFIG_TCP_CONG_BBR=y"
-          add 'CONFIG_DEFAULT_TCP_CONG="bbr"'
-          add "CONFIG_NET_SCH_FQ=y"
-          add "CONFIG_NET_SCH_FQ_CODEL=y"          # 通用队列（WiFi / 热点共享）
-
-          # 备选拥塞控制（不影响默认值，只是多给几个可切换选项）
-          add "CONFIG_TCP_CONG_WESTWOOD=y"
-          add "CONFIG_TCP_CONG_HTCP=y"
-          add "CONFIG_TCP_CONG_VEGAS=y"
-
-          # KSU 走 manual hook（inline hook），不需要 KPROBES
-          # 只依赖 KALLSYMS_ALL —— defconfig 里已经是 y，无需处理
-          echo "  = KSU 用 manual hook（不启用 KPROBES）"
-
-          # ===== 内存 =====
-          # KSM 刻意不加：ksmd 后台持续扫描内存吃 CPU，ZRAM 场景下收益小
-          # （defconfig 里 KSM 未提 = Kconfig 默认 n，所以什么都不用写）
-          remove_cfg "CONFIG_KSM"
-          echo "  - KSM 保持关闭（默认 n）"
-
-          add "CONFIG_ZSTD_COMPRESS=y"
-          add "CONFIG_ZSTD_DECOMPRESS=y"
-
-          # ===== 调度：UClamp（性能和省电的关键）=====
-          # 允许任务声明性能上下限：前台保性能、后台压功耗
-          add "CONFIG_UCLAMP_TASK=y"
-          add "CONFIG_UCLAMP_TASK_GROUP=y"
-
-          # ===== 省电 =====
-          add "CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y"   # 空闲时用低功耗 workqueue
-          add "CONFIG_PM_AUTOSLEEP=y"                 # 无 wakelock 时自动 suspend
-
-          # ===== ZRAM 默认算法改 zstd（choice，必须清同组）=====
-          # ===== ZRAM 默认算法用 LZ4（choice，必须清同组）=====
-          # LZ4 压缩/解压速度远快于 ZSTD → 换页时 CPU 开销低 → 更省电
-          # 注意：ARM64 硬件加速只有 AES/SHA/CRC32，不含 LZ4（LZ4 是纯软件算法）
-          # ZSTD 仍编进内核，运行时可用 `echo zstd > /sys/block/zram0/comp_algorithm` 切回去
-          set_choice "ZRAM_DEF_COMP_" "ZRAM_DEF_COMP_LZ4"
-
-          # ===== I/O 调度 =====
-          add "CONFIG_MQ_IOSCHED_KYBER=y"
-
-          # ===== 可选：挂载支持 =====
-          add "CONFIG_SQUASHFS=y"
-          add "CONFIG_SQUASHFS_ZSTD=y"
-          add "CONFIG_CIFS=y"
-
-          echo ""
-          echo "=== 修改后核对 ==="
-          grep -E "TCP_CONG_ADVANCED|TCP_CONG_BBR|DEFAULT_TCP_CONG|NET_SCH_FQ|UCLAMP|ZRAM_DEF_COMP|KSM|ZSTD_COMPRESS|KYBER|SQUASHFS=|CIFS=" "$D"
-
-      - name: "Integrate KernelSU"
-        if: ${{ inputs.enable_ksu }}
+      - name: Apply Source-Level Power & Performance Patches (ABI/CRC Safe)
+        if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
         run: |
-          D="arch/arm64/configs/${{ inputs.defconfig }}"
-          # 优先 SukiSU/ReSukiSU —— 它们用 manual hook（inline hook），不依赖 KPROBES
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash - || \
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          python3 - << 'EOF'
+          import os, re
 
-          # manual hook 只需要符号表（defconfig 里 KALLSYMS_ALL 已开）
-          # 明确要求走 manual hook —— 不加 KPROBES / KPROBE_EVENTS
+          def patch_file(path, desc, pattern, replacement, count=1):
+              if not os.path.exists(path):
+                  print(f"[SKIP] {desc}: {path} not found")
+                  return
+              with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                  content = f.read()
+              new_content, n = re.subn(pattern, replacement, content, count=count, flags=re.M)
+              if n > 0 and new_content != content:
+                  with open(path, 'w', encoding='utf-8') as f:
+                      f.write(new_content)
+                  print(f"[PATCH OK] {desc} ({path})")
+              else:
+                  print(f"[SKIP/NO MATCH] {desc} ({path})")
 
-          echo "=== KSU 相关 config ==="
-          grep -E "KSU|KALLSYMS|KPROBES" "$D" || true
+          # 1. Makefile 注入 -O3 与 Cortex-A77 流水线调优
+          patch_file(
+              "Makefile",
+              "Inject -O3 and Cortex-A77 tuning flags",
+              r"(KBUILD_CFLAGS\s*\+=\s*-O2)",
+              r"KBUILD_CFLAGS += -O3 -mtune=cortex-a77 -fno-semantic-interposition"
+          )
 
-      - name: "Make defconfig"
+          # 2. 高通 WALT 调度器：采用 RECENT 窗口策略，加快高负载后的降频响应
+          patch_file(
+              "kernel/sched/walt.c",
+              "Set WALT default window stats policy to favor recent load drop",
+              r"(unsigned\s+int\s+__read_mostly\s+sysctl_sched_window_stats_policy\s*=\s*)WINDOW_STATS_MAX_RECENT_AVG;",
+              r"\g<1>WINDOW_STATS_RECENT;"
+          )
+
+          # 3. PELT 半衰期缩短 (32ms -> 16ms 等效加速)
+          patch_file(
+              "kernel/sched/pelt.c",
+              "Fast PELT decay",
+              r"(delta\s*>>=\s*10;)",
+              r"\1\n\tdelta <<= 1; /* 16ms effective half-life */"
+          )
+
+          # 4. 拦截 HyperOS mi_thermald 的 CPU 锁频，保留 33W 快充温控
+          patch_file(
+              "drivers/thermal/mi_thermal_interface.c",
+              "Bypass HyperOS thermal_cpu_limits_store throttling",
+              r"(static\s+ssize_t\s+thermal_cpu_limits_store\s*\([^)]*\)\s*\{)",
+              r"\1\n\treturn len;"
+          )
+          patch_file(
+              "drivers/thermal/mi_thermal_interface.c",
+              "Bypass HyperOS cpu_limits_store fallback",
+              r"(static\s+ssize_t\s+cpu_limits_store\s*\([^)]*\)\s*\{)",
+              r"\1\n\treturn count;"
+          )
+
+          # 5. 内核级屏蔽高通 WiFi/Modem 高耗电 Wakelock（不改结构体）
+          patch_file(
+              "drivers/base/power/wakeup.c",
+              "Block battery-draining Qualcomm wakelocks",
+              r"(static\s+void\s+wakeup_source_activate\s*\(\s*struct\s+wakeup_source\s*\*ws\s*\)\s*\{)",
+              r'''\1
+          \tif (ws && ws->name && (
+          \t    !strcmp(ws->name, "qcom_rx_wakelock") ||
+          \t    !strcmp(ws->name, "wlan_pno_wl") ||
+          \t    !strcmp(ws->name, "wlan_extscan_wl") ||
+          \t    !strcmp(ws->name, "ipa_WS") ||
+          \t    !strcmp(ws->name, "NETLINK")))
+          \t\treturn;'''
+          )
+
+          # 6. 缩短 Adreno 650 GPU 空闲断电时间 (80ms -> 56ms) 并关闭 POPP
+          patch_file(
+              "drivers/gpu/msm/adreno.c",
+              "Shorten Adreno 650 GPU idle timeout to 56ms",
+              r"(#define\s+ADRENO_IDLE_TIMEOUT\s+)\(?80\)?",
+              r"\g<1>56"
+          )
+          patch_file(
+              "drivers/gpu/msm/kgsl_pwrscale.c",
+              "Disable KGSL POPP overhead",
+              r"(pwrscale->popp_enabled\s*=\s*)true;",
+              r"\g<1>false;"
+          )
+
+          # 7. 压制 CPU Input Boost 默认时长至 40ms
+          patch_file(
+              "drivers/cpufreq/cpu-boost.c",
+              "Cap default input_boost_ms to 40ms",
+              r"(static\s+unsigned\s+int\s+input_boost_ms\s*=\s*)[0-9]+;",
+              r"\g<1>40;"
+          )
+
+          # 8. 移除 schedutil 的 sugov_cpu_is_busy 粘滞升频逻辑
+          patch_file(
+              "kernel/sched/cpufreq_schedutil.c",
+              "Disable sugov_cpu_is_busy frequency stickiness",
+              r"(static\s+bool\s+sugov_cpu_is_busy\s*\([^)]*\)\s*\{)",
+              r"\1\n\treturn false;"
+          )
+
+          # 9. 锁定 ZRAM 换页预读 page_cluster = 0
+          patch_file(
+              "mm/swap.c",
+              "Set default page_cluster to 0 for ZRAM efficiency",
+              r"(int\s+page_cluster\s*=\s*)[0-9]+;",
+              r"\g<1>0;"
+          )
+
+          # 10. 静默 Binder 与高通总线投票内部调试日志
+          patch_file(
+              "drivers/android/binder.c",
+              "Silence binder debug mask",
+              r"(uint32_t\s+binder_debug_mask\s*=\s*)[^;]+;",
+              r"\g<1>0;"
+          )
+          patch_file(
+              "drivers/soc/qcom/msm_bus/msm_bus_dbg.c",
+              "Bypass msm_bus_dbg request logging",
+              r"(static\s+void\s+msm_bus_dbg_update_request\s*\([^)]*\)\s*\{)",
+              r"\1\n\treturn;"
+          )
+
+          # 11. 缩短 NAPI 网络软中断单次轮询时间上限 (2000us -> 1000us)
+          patch_file(
+              "net/core/dev.c",
+              "Reduce netdev_budget_usecs to 1000us",
+              r"(unsigned\s+int\s+__read_mostly\s+netdev_budget_usecs\s*=\s*)(?:2000\s*\*\s*USEC_PER_MSEC\s*/\s*1000|2000);",
+              r"\g<1>1000;"
+          )
+          EOF
+
+      - name: Generate Base Defconfig
         working-directory: kernel
         run: |
-          mkdir -p out
-          make O=out ARCH=arm64 \
-            CC="$PWD/../proton-clang/bin/clang" \
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          make O=out ARCH=arm64 "$DEFCONFIG"
+
+      - name: Inject Kconfig Features & Resolve Dependencies
+        if: env.APPLY_FEATURES == 'true'
+        working-directory: kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          chmod +x ./scripts/config
+
+          ./scripts/config --file out/.config \
+            --disable LOCALVERSION_AUTO \
+            --set-str LOCALVERSION "-perf" \
+            --enable TCP_CONG_ADVANCED \
+            --enable TCP_CONG_BBR \
+            --enable DEFAULT_TCP_CONG_BBR \
+            --set-str DEFAULT_TCP_CONG "bbr" \
+            --enable NET_SCH_FQ \
+            --enable DEFAULT_FQ \
+            --set-str DEFAULT_NET_SCH "fq" \
+            --enable NET_SCH_FQ_CODEL \
+            --enable TCP_CONG_WESTWOOD \
+            --enable TCP_CONG_HTCP \
+            --enable TCP_CONG_VEGAS \
+            --disable KSM \
+            --enable ZSTD_COMPRESS \
+            --enable ZSTD_DECOMPRESS \
+            --disable ZRAM_DEF_COMP_LZO \
+            --disable ZRAM_DEF_COMP_ZSTD \
+            --enable ZRAM_DEF_COMP_LZ4 \
+            --set-str ZRAM_DEF_COMP "lz4" \
+            --enable WQ_POWER_EFFICIENT_DEFAULT \
+            --enable MQ_IOSCHED_KYBER \
+            --disable UCLAMP_TASK \
+            --disable UCLAMP_TASK_GROUP
+
+          make O=out ARCH=arm64 olddefconfig
+
+      - name: Verify Effective .config
+        if: env.APPLY_FEATURES == 'true'
+        working-directory: kernel
+        run: |
+          grep -E '^CONFIG_LOCALVERSION="-perf"$' out/.config
+          grep -E '^CONFIG_TCP_CONG_BBR=y$' out/.config
+          grep -E '^CONFIG_DEFAULT_TCP_CONG="bbr"$' out/.config
+          grep -E '^CONFIG_NET_SCH_FQ=y$' out/.config
+          grep -E '^CONFIG_ZSTD_COMPRESS=y$' out/.config
+          grep -E '^CONFIG_ZRAM_DEF_COMP_LZ4=y$' out/.config
+          grep -E '^CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y$' out/.config
+          grep -E '^CONFIG_MQ_IOSCHED_KYBER=y$' out/.config
+          ! grep -E '^CONFIG_KSM=y$' out/.config
+          ! grep -E '^CONFIG_UCLAMP_TASK=y$' out/.config
+
+      - name: Compile Kernel Image
+        working-directory: kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          make O=out ARCH=arm64 -j$(nproc --all) \
+            CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$PWD/../proton-clang/bin/aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="$PWD/../proton-clang/bin/arm-linux-gnueabi-" \
-            LD="$PWD/../proton-clang/bin/ld.lld" \
-            AR="$PWD/../proton-clang/bin/llvm-ar" \
-            NM="$PWD/../proton-clang/bin/llvm-nm" \
-            OBJCOPY="$PWD/../proton-clang/bin/llvm-objcopy" \
-            OBJDUMP="$PWD/../proton-clang/bin/llvm-objdump" \
-            READELF="$PWD/../proton-clang/bin/llvm-readelf" \
-            STRIP="$PWD/../proton-clang/bin/llvm-strip" \
-            "${{ inputs.defconfig }}"
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            READELF=llvm-readelf \
+            STRIP=llvm-strip \
+            Image
 
-      - name: "Build kernel"
+      - name: Verify Compiled Kernel Image & Vermagic
         working-directory: kernel
         run: |
-          make O=out ARCH=arm64 -j$(nproc) \
-            CC="$PWD/../proton-clang/bin/clang" \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE="$PWD/../proton-clang/bin/aarch64-linux-gnu-" \
-            CROSS_COMPILE_ARM32="$PWD/../proton-clang/bin/arm-linux-gnueabi-" \
-            LD="$PWD/../proton-clang/bin/ld.lld" \
-            AR="$PWD/../proton-clang/bin/llvm-ar" \
-            NM="$PWD/../proton-clang/bin/llvm-nm" \
-            OBJCOPY="$PWD/../proton-clang/bin/llvm-objcopy" \
-            OBJDUMP="$PWD/../proton-clang/bin/llvm-objdump" \
-            READELF="$PWD/../proton-clang/bin/llvm-readelf" \
-            STRIP="$PWD/../proton-clang/bin/llvm-strip"
+          test -f out/arch/arm64/boot/Image
+          VER_STR=$(strings out/arch/arm64/boot/Image | grep -m1 "Linux version 4.19")
+          echo "Detected: $VER_STR"
+          echo "$VER_STR" | grep -q "4.19.157-perf " || exit 1
 
-      - name: "Verify build output"
+      - name: Package AnyKernel3 Zip (Strictly No dtbo.img)
         run: |
-          ls -la kernel/out/arch/arm64/boot/
-          file kernel/out/arch/arm64/boot/Image
-          echo "=== 确认 BBR 编进去了 ==="
-          grep -E "CONFIG_TCP_CONG_BBR|CONFIG_NET_SCH_FQ" kernel/out/.config
+          git clone --depth=1 -b thyme https://github.com/easterNday/AnyKernel3 AnyKernel3
+          rm -rf AnyKernel3/.git AnyKernel3/dtbo.img AnyKernel3/dtb
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
 
-      - name: "Package with AnyKernel3"
-        run: |
-          git clone --depth=1 -b thyme https://github.com/easterNday/AnyKernel3.git AK3 || \
-            git clone --depth=1 https://github.com/easterNday/AnyKernel3.git AK3
+          cd AnyKernel3
+          ZIP_NAME="thyme-kernel-${GITHUB_RUN_NUMBER}.zip"
+          zip -r9 "../${ZIP_NAME}" * -x "*.git*" "README.md" "*placeholder*"
+          cd ..
 
-          cp kernel/out/arch/arm64/boot/Image AK3/Image
-          # ⚠️ 故意不打包 dtbo.img：thyme 上重编 dtbo 会导致锁屏闪最高亮度/手势失效/卡槽无信号
+          unzip -l "${ZIP_NAME}"
+          ! unzip -l "${ZIP_NAME}" | grep -qi "dtbo"
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
-          cd AK3
-          rm -rf .git
-          zip -r9 "../thyme-kernel-${{ github.run_number }}.zip" * -x "README.md"
-
-      - name: "Upload artifact"
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
           name: thyme-kernel-${{ github.run_number }}
-          path: thyme-kernel-${{ github.run_number }}.zip
+          path: ${{ env.ZIP_NAME }}
           retention-days: 30
