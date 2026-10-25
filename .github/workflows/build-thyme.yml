@@ -200,40 +200,33 @@ jobs:
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
         run: |
+        run: |
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          # 方案B: 直接向 defconfig 源追加配置行(kconfig 将其全部作为用户选择, choice 项必胜)
+          cat >> arch/arm64/configs/"$DEFCONFIG" <<'CFGEOF'
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_DEFAULT_TCP_CONG_BBR=y
+          CONFIG_TCP_CONG_WESTWOOD=y
+          CONFIG_TCP_CONG_HTCP=y
+          CONFIG_TCP_CONG_VEGAS=y
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_DEFAULT_FQ=y
+          # CONFIG_KSM is not set
+          CONFIG_ZSTD_COMPRESS=y
+          CONFIG_ZSTD_DECOMPRESS=y
+          CONFIG_ZRAM_DEF_COMP_LZ4=y
+          CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y
+          CONFIG_MQ_IOSCHED_KYBER=y
+          # CONFIG_UCLAMP_TASK is not set
+          # CONFIG_UCLAMP_TASK_GROUP is not set
+          CFGEOF
+          # 重新生成 .config(含追加项), 再处理 LOCALVERSION
+          make O=out ARCH=arm64 "$DEFCONFIG"
           chmod +x ./scripts/config
-
-          ./scripts/config --file out/.config \
-            --disable LOCALVERSION_AUTO \
-            --set-str LOCALVERSION "-perf" \
-            --enable TCP_CONG_ADVANCED \
-            --enable TCP_CONG_BBR \
-            --disable DEFAULT_TCP_CONG_CUBIC \
-            --enable DEFAULT_TCP_CONG_BBR \
-            --set-str DEFAULT_TCP_CONG "bbr" \
-            --enable NET_SCH_FQ \
-            --disable DEFAULT_FQ_CODEL \
-            --enable DEFAULT_FQ \
-            --set-str DEFAULT_NET_SCH "fq" \
-            --enable NET_SCH_FQ_CODEL \
-            --enable TCP_CONG_WESTWOOD \
-            --enable TCP_CONG_HTCP \
-            --enable TCP_CONG_VEGAS \
-            --disable KSM \
-            --enable ZSTD_COMPRESS \
-            --enable ZSTD_DECOMPRESS \
-            --disable ZRAM_DEF_COMP_LZORLE \
-            --disable ZRAM_DEF_COMP_LZO \
-            --disable ZRAM_DEF_COMP_ZSTD \
-            --enable ZRAM_DEF_COMP_LZ4 \
-            --set-str ZRAM_DEF_COMP "lz4" \
-            --enable WQ_POWER_EFFICIENT_DEFAULT \
-            --enable MQ_IOSCHED_KYBER \
-            --disable UCLAMP_TASK \
-            --disable UCLAMP_TASK_GROUP
-
+          ./scripts/config --file out/.config --disable LOCALVERSION_AUTO --set-str LOCALVERSION "-perf"
           make O=out ARCH=arm64 olddefconfig
-
       - name: Verify Effective .config
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
