@@ -226,6 +226,10 @@ jobs:
           chmod +x ./scripts/config
           ./scripts/config --file out/.config --disable LOCALVERSION_AUTO --set-str LOCALVERSION "-perf"
           make O=out ARCH=arm64 olddefconfig
+          # choice 派生字符串直改(编译期 autoconf.h 原样采用, 不再跑 olddefconfig)
+          sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' out/.config
+          sed -i 's/^CONFIG_DEFAULT_NET_SCH=.*/CONFIG_DEFAULT_NET_SCH="fq"/' out/.config
+          grep -E '^CONFIG_DEFAULT_TCP_CONG|^CONFIG_DEFAULT_NET_SCH' out/.config
       - name: Verify Effective .config
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
