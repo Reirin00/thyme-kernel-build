@@ -200,7 +200,6 @@ jobs:
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
         run: |
-        run: |
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
           # 方案B: 直接向 defconfig 源追加配置行(kconfig 将其全部作为用户选择, choice 项必胜)
           cat >> arch/arm64/configs/"$DEFCONFIG" <<'CFGEOF'
