@@ -86,6 +86,7 @@ jobs:
           CONFIG_TCP_CONG_VEGAS=y
           CONFIG_NET_SCH_FQ=y
           CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_NET_SCH_DEFAULT=y
           CONFIG_DEFAULT_FQ=y
           # CONFIG_KSM is not set
           CONFIG_ZSTD_COMPRESS=y
