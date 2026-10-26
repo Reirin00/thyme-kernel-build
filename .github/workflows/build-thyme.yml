@@ -55,141 +55,16 @@ jobs:
           sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
           sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/g' scripts/setlocalversion
 
-      - name: Apply Source-Level Power & Performance Patches (ABI/CRC Safe)
-        if: env.APPLY_FEATURES == 'true'
-        working-directory: kernel
+      - name: "Source patches DISABLED"
         run: |
-          python3 - << 'EOF'
-          import os, re
-
-          def patch_file(path, desc, pattern, replacement, count=1):
-              if not os.path.exists(path):
-                  print(f"[SKIP] {desc}: {path} not found")
-                  return
-              with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                  content = f.read()
-              new_content, n = re.subn(pattern, replacement, content, count=count, flags=re.M)
-              if n > 0 and new_content != content:
-                  with open(path, 'w', encoding='utf-8') as f:
-                      f.write(new_content)
-                  print(f"[PATCH OK] {desc} ({path})")
-              else:
-                  print(f"[SKIP/NO MATCH] {desc} ({path})")
-
-          # 1. Makefile 注入 -O3 与 Cortex-A77 流水线调优
-          patch_file(
-              "Makefile",
-              "Inject -O3 and Cortex-A77 tuning flags",
-              r"(KBUILD_CFLAGS\s*\+=\s*-O2)",
-              r"KBUILD_CFLAGS += -O3 -mtune=cortex-a77 -fno-semantic-interposition"
-          )
-
-          # 2. 高通 WALT 调度器：采用 RECENT 窗口策略，加快高负载后的降频响应
-          patch_file(
-              "kernel/sched/walt.c",
-              "Set WALT default window stats policy to favor recent load drop",
-              r"(unsigned\s+int\s+__read_mostly\s+sysctl_sched_window_stats_policy\s*=\s*)WINDOW_STATS_MAX_RECENT_AVG;",
-              r"\g<1>WINDOW_STATS_RECENT;"
-          )
-
-          # 3. PELT 半衰期缩短 (32ms -> 16ms 等效加速)
-          patch_file(
-              "kernel/sched/pelt.c",
-              "Fast PELT decay",
-              r"(delta\s*>>=\s*10;)",
-              r"\1\n\tdelta <<= 1; /* 16ms effective half-life */"
-          )
-
-          # 4. 拦截 HyperOS mi_thermald 的 CPU 锁频，保留 33W 快充温控
-          patch_file(
-              "drivers/thermal/mi_thermal_interface.c",
-              "Bypass HyperOS thermal_cpu_limits_store throttling",
-              r"(static\s+ssize_t\s+thermal_cpu_limits_store\s*\([^)]*\)\s*\{)",
-              r"\1\n\treturn len;"
-          )
-          patch_file(
-              "drivers/thermal/mi_thermal_interface.c",
-              "Bypass HyperOS cpu_limits_store fallback",
-              r"(static\s+ssize_t\s+cpu_limits_store\s*\([^)]*\)\s*\{)",
-              r"\1\n\treturn count;"
-          )
-
-          # 5. 内核级屏蔽高通 WiFi/Modem 高耗电 Wakelock（不改结构体）
-          patch_file(
-              "drivers/base/power/wakeup.c",
-              "Block battery-draining Qualcomm wakelocks",
-              r"(static\s+void\s+wakeup_source_activate\s*\(\s*struct\s+wakeup_source\s*\*ws\s*\)\s*\{)",
-              r'''\1
-          \tif (ws && ws->name && (
-          \t    !strcmp(ws->name, "qcom_rx_wakelock") ||
-          \t    !strcmp(ws->name, "wlan_pno_wl") ||
-          \t    !strcmp(ws->name, "wlan_extscan_wl") ||
-          \t    !strcmp(ws->name, "ipa_WS") ||
-          \t    !strcmp(ws->name, "NETLINK")))
-          \t\treturn;'''
-          )
-
-          # 6. 缩短 Adreno 650 GPU 空闲断电时间 (80ms -> 56ms) 并关闭 POPP
-          patch_file(
-              "drivers/gpu/msm/adreno.c",
-              "Shorten Adreno 650 GPU idle timeout to 56ms",
-              r"(#define\s+ADRENO_IDLE_TIMEOUT\s+)\(?80\)?",
-              r"\g<1>56"
-          )
-          patch_file(
-              "drivers/gpu/msm/kgsl_pwrscale.c",
-              "Disable KGSL POPP overhead",
-              r"(pwrscale->popp_enabled\s*=\s*)true;",
-              r"\g<1>false;"
-          )
-
-          # 7. 压制 CPU Input Boost 默认时长至 40ms
-          patch_file(
-              "drivers/cpufreq/cpu-boost.c",
-              "Cap default input_boost_ms to 40ms",
-              r"(static\s+unsigned\s+int\s+input_boost_ms\s*=\s*)[0-9]+;",
-              r"\g<1>40;"
-          )
-
-          # 8. 移除 schedutil 的 sugov_cpu_is_busy 粘滞升频逻辑
-          patch_file(
-              "kernel/sched/cpufreq_schedutil.c",
-              "Disable sugov_cpu_is_busy frequency stickiness",
-              r"(static\s+bool\s+sugov_cpu_is_busy\s*\([^)]*\)\s*\{)",
-              r"\1\n\treturn false;"
-          )
-
-          # 9. 锁定 ZRAM 换页预读 page_cluster = 0
-          patch_file(
-              "mm/swap.c",
-              "Set default page_cluster to 0 for ZRAM efficiency",
-              r"(int\s+page_cluster\s*=\s*)[0-9]+;",
-              r"\g<1>0;"
-          )
-
-          # 10. 静默 Binder 与高通总线投票内部调试日志
-          patch_file(
-              "drivers/android/binder.c",
-              "Silence binder debug mask",
-              r"(uint32_t\s+binder_debug_mask\s*=\s*)[^;]+;",
-              r"\g<1>0;"
-          )
-          patch_file(
-              "drivers/soc/qcom/msm_bus/msm_bus_dbg.c",
-              "Bypass msm_bus_dbg request logging",
-              r"(static\s+void\s+msm_bus_dbg_update_request\s*\([^)]*\)\s*\{)",
-              r"\1\n\treturn;"
-          )
-
-          # 11. 缩短 NAPI 网络软中断单次轮询时间上限 (2000us -> 1000us)
-          patch_file(
-              "net/core/dev.c",
-              "Reduce netdev_budget_usecs to 1000us",
-              r"(unsigned\s+int\s+__read_mostly\s+netdev_budget_usecs\s*=\s*)(?:2000\s*\*\s*USEC_PER_MSEC\s*/\s*1000|2000);",
-              r"\g<1>1000;"
-          )
-          EOF
-
+          echo "源码级补丁已全部移除。"
+          echo "原因：Gemini 建议的 11 项补丁中有 6 处硬错误，其中"
+          echo "  -fno-semantic-interposition 是 GCC 专有选项，clang 直接报 unknown argument"
+          echo "  导致 Compile Kernel Image 必然失败。"
+          echo "其余 5 处（PELT delta<<=1 / 热控绕过 / wakelock 黑名单 / GPU idle / sugov 去粘滞）"
+          echo "会引入逻辑错误、WiFi 息屏断流、频率抖动等运行期问题。"
+          echo ""
+          echo "如需重新引入，必须先修正上述问题，并单独验证。"
       - name: Generate Base Defconfig
         working-directory: kernel
         run: |
