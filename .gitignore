@@ -1,5 +1,7 @@
 _mock/
 _ref/
+_src/
+_logs/
 *.log
 *.zip
 thyme_defconfig
