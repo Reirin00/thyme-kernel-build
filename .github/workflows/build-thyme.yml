@@ -181,35 +181,8 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
 
           # thyme 专用 anykernel.sh：A/B 设备，只刷 boot 分区（vendor_boot 不动）
-          cat > AnyKernel3/anykernel.sh <<'AKEOF'
-### AnyKernel3 Ramdisk Mod Script
-properties() { '
-kernel.string=thyme-kernel by WorkBuddy
-do.devicecheck=1
-do.modules=0
-do.systemless=0
-do.cleanup=1
-do.cleanuponabort=0
-device.name1=thyme
-device.name2=Mi 10S
-device.name3=
-device.name4=
-device.name5=
-supported.versions=
-supported.patchlevels=
-supported.vendorpatchlevels=
-'; }
-
-BLOCK=/dev/block/bootdevice/by-name/boot;
-IS_SLOT_DEVICE=1;
-RAMDISK_COMPRESSION=auto;
-PATCH_VBMETA_FLAG=auto;
-
-. tools/ak3-core.sh;
-
-dump_boot;
-write_boot;
-AKEOF
+          echo '' | base64 -d > AnyKernel3/anykernel.sh
+          echo "--- anykernel.sh ---"; head -6 AnyKernel3/anykernel.sh
 
           cd AnyKernel3
           ZIP_NAME="thyme-kernel-${GITHUB_RUN_NUMBER}.zip"
