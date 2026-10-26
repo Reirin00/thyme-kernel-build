@@ -61,6 +61,12 @@ jobs:
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 157/' Makefile
           echo "--- 改后 ---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
 
+          # 默认 TCP 拥塞控制改为 BBR：choice 成员名是 DEFAULT_BBR（不是 DEFAULT_TCP_CONG_BBR）
+          # 直接改 Kconfig default，比注入 choice 更可靠（syncconfig 不会覆盖）
+          echo "--- 改前 ---"; grep -nA1 "Default TCP congestion control" net/ipv4/Kconfig | head -3
+          sed -i 's/^\tdefault DEFAULT_CUBIC$/\tdefault DEFAULT_BBR/' net/ipv4/Kconfig
+          echo "--- 改后 ---"; grep -nA1 "Default TCP congestion control" net/ipv4/Kconfig | head -3
+
       - name: "Source patches DISABLED"
         run: |
           echo "源码级补丁已全部移除。"
@@ -86,7 +92,6 @@ jobs:
           cat >> arch/arm64/configs/"$DEFCONFIG" <<'CFGEOF'
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_TCP_CONG_BBR=y
           CONFIG_TCP_CONG_WESTWOOD=y
           CONFIG_TCP_CONG_HTCP=y
           CONFIG_TCP_CONG_VEGAS=y
