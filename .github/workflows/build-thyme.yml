@@ -230,6 +230,8 @@ jobs:
           sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' out/.config
           sed -i 's/^CONFIG_DEFAULT_NET_SCH=.*/CONFIG_DEFAULT_NET_SCH="fq"/' out/.config
           grep -E '^CONFIG_DEFAULT_TCP_CONG|^CONFIG_DEFAULT_NET_SCH' out/.config
+          # 清除空值 CPU_MASK(thyme_defconfig 自带 "", 4.19 syncconfig 遇空值死循环打印的已知坑)
+          sed -i '/^CONFIG_\(LITTLE\|BIG\|PRIME\)_CPU_MASK=""$/d' out/.config
       - name: Verify Effective .config
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
