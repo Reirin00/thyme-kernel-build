@@ -181,7 +181,7 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
 
           # thyme 专用 anykernel.sh：A/B 设备，只刷 boot 分区（vendor_boot 不动）
-          echo '' | base64 -d > AnyKernel3/anykernel.sh
+          echo 'IyMjIEFueUtlcm5lbDMgUmFtZGlzayBNb2QgU2NyaXB0CnByb3BlcnRpZXMoKSB7ICcKa2VybmVsLnN0cmluZz10aHltZS1rZXJuZWwgYnkgV29ya0J1ZGR5CmRvLmRldmljZWNoZWNrPTEKZG8ubW9kdWxlcz0wCmRvLnN5c3RlbWxlc3M9MApkby5jbGVhbnVwPTEKZG8uY2xlYW51cG9uYWJvcnQ9MApkZXZpY2UubmFtZTE9dGh5bWUKZGV2aWNlLm5hbWUyPU1pIDEwUwpkZXZpY2UubmFtZTM9CmRldmljZS5uYW1lND0KZGV2aWNlLm5hbWU1PQpzdXBwb3J0ZWQudmVyc2lvbnM9CnN1cHBvcnRlZC5wYXRjaGxldmVscz0Kc3VwcG9ydGVkLnZlbmRvcnBhdGNobGV2ZWxzPQonOyB9CgpCTE9DSz0vZGV2L2Jsb2NrL2Jvb3RkZXZpY2UvYnktbmFtZS9ib290OwpJU19TTE9UX0RFVklDRT0xOwpSQU1ESVNLX0NPTVBSRVNTSU9OPWF1dG87ClBBVENIX1ZCTUVUQV9GTEFHPWF1dG87CgouIHRvb2xzL2FrMy1jb3JlLnNoOwoKZHVtcF9ib290Owp3cml0ZV9ib290Owo=' | base64 -d > AnyKernel3/anykernel.sh
           echo "--- anykernel.sh ---"; head -6 AnyKernel3/anykernel.sh
 
           cd AnyKernel3
