@@ -54,6 +54,12 @@ jobs:
         run: |
           sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
           sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/g' scripts/setlocalversion
+          # ⚠️ 关键：源码树 Makefile 是 4.19.325，但设备 vendor 模块（WiFi/音频/相机）
+          #    是按 4.19.157 编译的，vermagic 不匹配会全部拒载。
+          #    把 SUBLEVEL 改成 157 让 vermagic 对齐（4.19 stable 内部 ABI 基本兼容）。
+          echo "--- 改前 ---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
+          sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 157/' Makefile
+          echo "--- 改后 ---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
 
       - name: "Source patches DISABLED"
         run: |
