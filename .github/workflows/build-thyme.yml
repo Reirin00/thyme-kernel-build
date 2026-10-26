@@ -101,29 +101,31 @@ jobs:
           make O=out ARCH=arm64 "$DEFCONFIG"
           chmod +x ./scripts/config
           ./scripts/config --file out/.config --disable LOCALVERSION_AUTO --set-str LOCALVERSION "-perf"
-          # ⚠️ 4.19 Kconfig 的 string 类型空默认值 bug：
-          #    三个 CPU_MASK symbol 默认 ""，非交互 syncconfig 会进入
-          #    "Bitmask of available LITTLE CPUs (LITTLE_CPU_MASK) [] (NEW)" 交互提问，
-          #    stdin EOF 后无限打印 "Error in reading or end of file." → make Image 卡死
-          #    注意：不能用 scripts/config --set-str（会写成 ""0-3"" 双引号嵌套），必须 printf 直写
+          # ⚠️ 这三个 CPU_MASK 是 **int/hex 类型**（不是 string），Kconfig 默认 0。
+          #    用 --set-str 会写成 ""0-3"" 双引号嵌套 → 判非法 → syncconfig 无限
+          #    "Error in reading or end of file."（非交互 stdin EOF 死循环）
+          #    正确做法来自上游 .github/workflows/Build_Kernel.yml:389-391
+          #    15=0xF(CPU0-3) / 112=0x70(CPU4-6) / 128=0x80(CPU7)
           set_cpu_mask() {
             sed -i "/^CONFIG_$1=/d" out/.config
-            printf 'CONFIG_%s="%s"\n' "$1" "$2" >> out/.config
+            printf 'CONFIG_%s=%s\n' "$1" "$2" >> out/.config
           }
-          set_cpu_mask LITTLE_CPU_MASK  0-3
-          set_cpu_mask BIG_CPU_MASK     4-6
-          set_cpu_mask PRIME_CPU_MASK   7
+          set_cpu_mask LITTLE_CPU_MASK  15
+          set_cpu_mask BIG_CPU_MASK     112
+          set_cpu_mask PRIME_CPU_MASK   128
           make O=out ARCH=arm64 olddefconfig
           # choice 派生字符串直改(编译期 autoconf.h 原样采用, 不再跑 olddefconfig)
           sed -i 's/^CONFIG_DEFAULT_TCP_CONG=.*/CONFIG_DEFAULT_TCP_CONG="bbr"/' out/.config
           sed -i 's/^CONFIG_DEFAULT_NET_SCH=.*/CONFIG_DEFAULT_NET_SCH="fq"/' out/.config
           grep -E '^CONFIG_DEFAULT_TCP_CONG|^CONFIG_DEFAULT_NET_SCH' out/.config
-          # 兜底：olddefconfig 之后若又被改回空值，再覆盖一次（printf 直写标准格式）
-          set_cpu_mask LITTLE_CPU_MASK  0-3
-          set_cpu_mask BIG_CPU_MASK     4-6
-          set_cpu_mask PRIME_CPU_MASK   7
-          # 断言：值必须是非空数字（配合 bash -e，失败会显式中止而不是静默卡死）
-          grep -E '^CONFIG_(LITTLE|BIG|PRIME)_CPU_MASK="[0-9]+(-[0-9]+)?"$' out/.config
+          # 兜底：olddefconfig 之后若又被改回默认 0，再覆盖一次
+          set_cpu_mask LITTLE_CPU_MASK  15
+          set_cpu_mask BIG_CPU_MASK     112
+          set_cpu_mask PRIME_CPU_MASK   128
+          # 断言：必须是 15/112/128（配合 bash -e，失败显式中止而不是静默卡死）
+          grep -E '^CONFIG_LITTLE_CPU_MASK=15$' out/.config
+          grep -E '^CONFIG_BIG_CPU_MASK=112$'   out/.config
+          grep -E '^CONFIG_PRIME_CPU_MASK=128$' out/.config
       - name: Verify Effective .config
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
