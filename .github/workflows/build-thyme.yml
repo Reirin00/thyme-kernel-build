@@ -100,6 +100,9 @@ jobs:
           CONFIG_NET_SCH_DEFAULT=y
           CONFIG_DEFAULT_FQ=y
           # CONFIG_KSM is not set
+          # 关闭模块 CRC 校验：源码是 4.19.325，设备 vendor 模块按 4.19.157 编译，
+          # MODVERSIONS 会让所有 vendor 模块因 CRC 不匹配而拒载 → 系统起不来
+          # CONFIG_MODVERSIONS is not set
           CONFIG_ZSTD_COMPRESS=y
           CONFIG_ZSTD_DECOMPRESS=y
           CONFIG_ZRAM_DEF_COMP_LZ4=y
