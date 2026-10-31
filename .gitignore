@@ -5,3 +5,7 @@ _logs/
 *.log
 *.zip
 thyme_defconfig
+_backup/
+_probe/
+out-kernel/
+_work/
