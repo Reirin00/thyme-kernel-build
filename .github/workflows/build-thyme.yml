@@ -83,20 +83,31 @@ jobs:
           set -euo pipefail
           P="$GITHUB_WORKSPACE/patches"
 
-          echo "=== 1) KernelSU v1.0.5 ==="
-          echo "  为什么钉 v1.0.5：susfs4ksu 的 kernel-4.19 分支里 10_enable 补丁"
-          echo "  改的是老结构文件（kernel/ksu.c、core_hook.c、sucompat.c、throne_tracker.c）。"
-          echo "  实测 v0.9.5=10 FAILED / v1.0.0=6 / v1.0.3=4 / v1.0.4=0 / v1.0.5=0，"
-          echo "  且更早的版本没有老结构。"
-          git clone -q --depth=1 -b v1.0.5 https://github.com/tiann/KernelSU.git KernelSU
+          echo "=== 1) KernelSU v0.9.5 ==="
+          echo "  选版本的三条硬约束："
+          echo "  (a) 必须能接 susfs4ksu 的 4.19 补丁——那套补丁改的是老结构文件"
+          echo "      （kernel/ksu.c、core_hook.c、sucompat.c、throne_tracker.c），"
+          echo "      KernelSU 在 v1.0.x 之后重构成了 core/ feature/ hook/ 新结构，对不上。"
+          echo "  (b) sepolicy.c 必须支持 4.19 的 SELinux 内部结构。"
+          echo "      v1.0.x 只判断 5.8/5.9，用的 filename_trans_key + ebitmap 是 5.4+ 的模型；"
+          echo "      4.19 是 struct filename_trans(含 stype) + hashtab，模型完全不同。"
+          echo "      v0.9.5 有 6 处版本判断（含 5.7 / 5.1），<5.7 分支走老模型。"
+          echo "  (c) 越老越好但别太老——v0.9.5 是最后一个带老结构 + 4.19 SELinux 分支的版本。"
+          echo "  补丁 ksu095_susfs.patch = 10_enable 补丁在 v0.9.5 上合并 7 个失败 hunk 的结果，"
+          echo "  已用 git apply --check 在干净树上验证过。"
+          git clone -q --depth=1 -b v0.9.5 https://github.com/tiann/KernelSU.git KernelSU
           echo "  KSU HEAD = $(git -C KernelSU rev-parse --short HEAD)"
 
-          echo "=== 2) 10_enable_susfs_for_ksu.patch ==="
-          patch -p1 -d KernelSU --dry-run -i "$P/10_enable_susfs_for_ksu.patch"
-          patch -p1 -d KernelSU -i "$P/10_enable_susfs_for_ksu.patch"
+          echo "=== 2) ksu095_susfs.patch ==="
+          patch -p1 -d KernelSU --dry-run -i "$P/ksu095_susfs.patch" || { echo "  !! dry-run 失败"; exit 1; }
+          patch -p1 -d KernelSU -i "$P/ksu095_susfs.patch" || { echo "  !! 补丁打不上"; exit 1; }
+          [ -f KernelSU/kernel/core_hook.c.rej ] && { echo "  !! 有 reject"; exit 1; }
           grep -q '^config KSU_SUSFS$' KernelSU/kernel/Kconfig \
             && echo "  [OK] Kconfig 已含 KSU_SUSFS" \
-            || { echo "  !! Kconfig 没有 KSU_SUSFS，补丁没生效"; exit 1; }
+            || { echo "  !! Kconfig 没有 KSU_SUSFS"; exit 1; }
+          grep -q 'susfs_is_current_ksu_domain' KernelSU/kernel/selinux/selinux.c \
+            && echo "  [OK] selinux.c 有 susfs_is_current_ksu_domain" \
+            || { echo "  !! selinux.c 缺 SUSFS 函数"; exit 1; }
 
           echo "=== 3) 挂进内核树 ==="
           ln -sfn "$(pwd)/KernelSU/kernel" drivers/kernelsu
