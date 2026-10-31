@@ -163,6 +163,20 @@ jobs:
           fi
           echo "  [OK] core_hook.c: is_manager -> ksu_is_manager"
 
+          # (d) 隐藏性：LSM 注册名不能叫 "ksu"
+          #     security_add_hooks(ksu_hooks, N, "ksu") 会把名字写进
+          #     /sys/kernel/security/lsm，读出来是 "capability,selinux,ksu" —— 等于挂牌。
+          #     本内核实测只编了 capability / selinux / landlock
+          #     （landlock_add_rule、selinux_inode_alloc_security、cap_capable 在，
+          #       yama/loadpin/safesetid/integrity/smack/tomoyo/apparmor/bpf 全不在），
+          #     所以借 "bpf"：CONFIG_LSM 默认串里本来就有它排最后，
+          #     且 lsm_append() 不查重，必须选一个确实没编的，否则会出现两个同名项。
+          sed -i 's/ARRAY_SIZE(ksu_hooks), "ksu"/ARRAY_SIZE(ksu_hooks), "bpf"/' drivers/kernelsu/core_hook.c
+          if grep -q 'ARRAY_SIZE(ksu_hooks), "ksu"' drivers/kernelsu/core_hook.c; then
+            echo "  !! LSM 改名没生效"; exit 1
+          fi
+          echo "  [OK] LSM 注册名 ksu -> bpf"
+
           #   c2) path_umount —— KernelSU 的 Makefile 会用 sed 把 path_umount 插到
           #       fs/namespace.c 的 'static bool is_mnt_ns_file' 之前，但：
           #         · 它依赖 can_umount()，那是 5.9 才有的权限检查函数，4.19 没有
@@ -232,6 +246,10 @@ jobs:
           # CONFIG_KSU_SUSFS_ENABLE_LOG is not set
           # sus_su 需要额外的用户态工具，第一轮先不开
           # CONFIG_KSU_SUSFS_SUS_SU is not set
+          # 隐藏性：/proc/config.gz 是 S_IRUGO(0444)，谁都能读，读出来第一眼就是
+          # CONFIG_KSU=y / CONFIG_KSU_SUSFS=y。保留 IKCONFIG=y（内核里仍存 .config，
+          # 万一要 kdump 还能用），只关掉对外暴露的 /proc 接口。
+          # CONFIG_IKCONFIG_PROC is not set
           CFGEOF
           # 重新生成 .config(含追加项), 再处理 LOCALVERSION
           make O=out ARCH=arm64 "$DEFCONFIG"
