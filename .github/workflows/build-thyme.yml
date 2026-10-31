@@ -122,6 +122,28 @@ jobs:
           cp "$P/susfs_fn/susfs.h" "$P/susfs_fn/susfs_def.h" "$P/susfs_fn/sus_su.h" include/linux/
           grep -n 'susfs' fs/Makefile || echo "  !! fs/Makefile 没有 susfs.o"
 
+          echo "=== 5.5) 两处版本 API 修正 ==="
+          # (a) 50 号补丁的 dcache.c 段用了新版 SUSFS 的 current->susfs_task_state
+          #     + TASK_STRUCT_NON_ROOT_USER_APP_PROC，需要往 struct task_struct 加字段。
+          #     但本分支的 susfs_def.h 用的是老方案：thread_info.flags 的
+          #     TIF_NON_ROOT_USER_APP_PROC(bit 33)，并提供了
+          #     susfs_is_current_non_root_user_app_proc()。补丁里其余 5 处都用后者，
+          #     只有 dcache.c 这 2 处漏改 —— 统一到后者，不去动 task_struct 布局。
+          sed -i 's/current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC/susfs_is_current_non_root_user_app_proc()/g' fs/dcache.c
+          if grep -q 'susfs_task_state' fs/dcache.c; then
+            echo "  !! dcache.c 仍有 susfs_task_state，修不干净"; grep -n susfs_task_state fs/dcache.c; exit 1
+          fi
+          echo "  [OK] dcache.c 已统一到 susfs_is_current_non_root_user_app_proc() ($(grep -c susfs_is_current_non_root_user_app_proc fs/dcache.c) 处)"
+
+          # (b) MODULE_IMPORT_NS 是 5.10 才有的符号命名空间宏，4.19 里是未定义标识符，
+          #     standalone 一行会被当成 "int MODULE_IMPORT_NS(...)" 函数声明 ->
+          #     "declaration specifier missing" + "parameter list without types"。
+          sed -i '/MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);/d' drivers/kernelsu/ksu.c
+          if grep -q 'MODULE_IMPORT_NS' drivers/kernelsu/ksu.c; then
+            echo "  !! ksu.c 仍有 MODULE_IMPORT_NS"; exit 1
+          fi
+          echo "  [OK] ksu.c 已删除 MODULE_IMPORT_NS（4.19 无此宏）"
+
           echo "=== 6) 落点校验 ==="
           grep -q 'CONFIG_KSU_SUSFS' fs/Makefile && echo "  [OK] fs/Makefile 已接 susfs.o"
           grep -q 'susfs_def.h' fs/namespace.c && echo "  [OK] namespace.c 引入 susfs_def.h"
