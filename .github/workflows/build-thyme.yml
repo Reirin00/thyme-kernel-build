@@ -67,12 +67,15 @@ jobs:
         run: |
           sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
           sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/g' scripts/setlocalversion
-          # ⚠️ 关键：源码树 Makefile 是 4.19.325，但设备 vendor 模块（WiFi/音频/相机）
-          #    是按 4.19.157 编译的，vermagic 不匹配会全部拒载。
-          #    把 SUBLEVEL 改成 157 让 vermagic 对齐（4.19 stable 内部 ABI 基本兼容）。
-          echo "--- 改前 ---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
-          sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 157/' Makefile
-          echo "--- 改后 ---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
+          # ⚠️ 不要再把 SUBLEVEL 改成 157！
+          # 2026-11-01 实测：设备已经从 MIUI13(4.19.157) 换成 OS3，
+          # 从设备 boot_a.img 里拉出的内核 vermagic 是：
+          #   Linux version 4.19.325-HyperOS3-A16-Sky-Developers+
+          #   clang 20.0.0, #1 SMP PREEMPT Sun Nov 30 16:17:41 CST 2025
+          # 即 **设备内核就是 4.19.325**，vendor 模块也按 325 编译。
+          # 之前把 325 强行 sed 成 157 是反的，vermagic 对不上 -> 模块全拒载 -> 卡 logo。
+          # 现在保持源码树原样（325），LOCALVERSION 由 config 提供。
+          echo "--- 源码树版本（保持不动）---"; grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL" Makefile
 
           # 默认 TCP 拥塞控制改为 BBR：choice 成员名是 DEFAULT_BBR（不是 DEFAULT_TCP_CONG_BBR）
           # 直接改 Kconfig default，比注入 choice 更可靠（syncconfig 不会覆盖）
@@ -213,8 +216,10 @@ jobs:
             echo "===== 用设备原厂 .config（6522 行）====="
             echo "  来源：从设备 boot.img 的 IKCFG 段解出来的，就是现在正在跑的那份"
             echo "  目的：把变量压到只剩「内核源码版本」，排除 defconfig 差异"
-            cp "$GITHUB_WORKSPACE/patches/vendor_thyme_defconfig" arch/arm64/configs/vendor_thyme_defconfig
-            make O=out ARCH=arm64 vendor_thyme_defconfig
+            cp "$GITHUB_WORKSPACE/patches/os3_defconfig" arch/arm64/configs/os3_defconfig
+            echo "  OS3 config 行数: $(wc -l < arch/arm64/configs/os3_defconfig)"
+            echo "  LOCALVERSION: $(grep '^CONFIG_LOCALVERSION=' arch/arm64/configs/os3_defconfig)"
+            make O=out ARCH=arm64 os3_defconfig
           else
             echo "===== 用 cctv18 的 defconfig（795 行）====="
             make O=out ARCH=arm64 "$DEFCONFIG"
@@ -226,7 +231,13 @@ jobs:
         run: |
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
           # 方案B: 直接向 defconfig 源追加配置行(kconfig 将其全部作为用户选择, choice 项必胜)
-          cat >> arch/arm64/configs/"$DEFCONFIG" <<'CFGEOF'
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            CFGTARGET=arch/arm64/configs/os3_defconfig
+          else
+            CFGTARGET=arch/arm64/configs/"$DEFCONFIG"
+          fi
+          echo "  追加配置到: $CFGTARGET"
+          cat >> "$CFGTARGET" <<'CFGEOF'
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_TCP_CONG_WESTWOOD=y
@@ -275,9 +286,19 @@ jobs:
           # CONFIG_IKCONFIG_PROC is not set
           CFGEOF
           # 重新生成 .config(含追加项), 再处理 LOCALVERSION
-          make O=out ARCH=arm64 "$DEFCONFIG"
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            make O=out ARCH=arm64 os3_defconfig
+          else
+            make O=out ARCH=arm64 "$DEFCONFIG"
+          fi
           chmod +x ./scripts/config
-          ./scripts/config --file out/.config --disable LOCALVERSION_AUTO --set-str LOCALVERSION "-perf"
+          # LOCALVERSION 由 config 决定（OS3 是 "-HyperOS3-A16-Sky-Developers"），
+          # 不要再覆盖成 "-perf"，否则 vermagic 对不上 vendor 模块
+          if [ "$USE_VENDOR_CONFIG" != "true" ]; then
+            ./scripts/config --file out/.config --disable LOCALVERSION_AUTO --set-str LOCALVERSION "-perf"
+          else
+            echo "  LOCALVERSION 保持 config 里的值：$(grep '^CONFIG_LOCALVERSION=' out/.config)"
+          fi
           # ⚠️ 这三个 CPU_MASK 是 **int/hex 类型**（不是 string），Kconfig 默认 0。
           #    用 --set-str 会写成 ""0-3"" 双引号嵌套 → 判非法 → syncconfig 无限
           #    "Error in reading or end of file."（非交互 stdin EOF 死循环）
