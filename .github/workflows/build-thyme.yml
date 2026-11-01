@@ -328,6 +328,20 @@ jobs:
           rm -rf AnyKernel3/.git AnyKernel3/dtbo.img AnyKernel3/dtb
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
 
+          # ---- ak3-core.sh 用 #15 验证过的那一版，不用上游最新 ----
+          # 上游现在的版本和 #15 那份差 74 字节，三处：
+          #   - 删掉了 `2) touch chromeos;;`（magiskboot unpack 返回 2 时打标记）
+          #   - chromeos 签名从 `if [ -f "$SPLITIMG/chromeos" ]` 守卫改成无条件执行
+          #   - AVB 签名从 `magiskboot sign` 改成 `magiskboot sign-avb1`
+          # 对本设备这三处都不触发（tools 里没有 avb/ 目录、boot.img 不是 chromeos 格式、
+          # unpack 不会返回 2），但 #15 是唯一验证过能刷进去的版本，照抄它最省事。
+          # 注意 tools/magiskboot 本身两版 md5 相同（878652 B），只换脚本。
+          cp "$GITHUB_WORKSPACE/patches/ak3/ak3-core.sh" AnyKernel3/tools/ak3-core.sh
+          md5sum AnyKernel3/tools/ak3-core.sh
+          grep -q 'magiskboot sign /' AnyKernel3/tools/ak3-core.sh \
+            && echo "  [OK] ak3-core.sh 是 #15 版（magiskboot sign）" \
+            || { echo "!! ak3-core.sh 不是 #15 版"; exit 1; }
+
           # thyme 专用 anykernel.sh：A/B 设备，只刷 boot 分区（vendor_boot 不动）
           echo 'IyMjIEFueUtlcm5lbDMgUmFtZGlzayBNb2QgU2NyaXB0CnByb3BlcnRpZXMoKSB7ICcKa2VybmVsLnN0cmluZz10aHltZS1rZXJuZWwgYnkgV29ya0J1ZGR5CmRvLmRldmljZWNoZWNrPTEKZG8ubW9kdWxlcz0wCmRvLnN5c3RlbWxlc3M9MApkby5jbGVhbnVwPTEKZG8uY2xlYW51cG9uYWJvcnQ9MApkZXZpY2UubmFtZTE9dGh5bWUKZGV2aWNlLm5hbWUyPU1pIDEwUwpkZXZpY2UubmFtZTM9CmRldmljZS5uYW1lND0KZGV2aWNlLm5hbWU1PQpzdXBwb3J0ZWQudmVyc2lvbnM9CnN1cHBvcnRlZC5wYXRjaGxldmVscz0Kc3VwcG9ydGVkLnZlbmRvcnBhdGNobGV2ZWxzPQonOyB9CgpCTE9DSz0vZGV2L2Jsb2NrL2Jvb3RkZXZpY2UvYnktbmFtZS9ib290OwpJU19TTE9UX0RFVklDRT0xOwpSQU1ESVNLX0NPTVBSRVNTSU9OPWF1dG87ClBBVENIX1ZCTUVUQV9GTEFHPWF1dG87CgouIHRvb2xzL2FrMy1jb3JlLnNoOwoKZHVtcF9ib290Owp3cml0ZV9ib290Owo=' | base64 -d > AnyKernel3/anykernel.sh
           echo "--- anykernel.sh ---"; head -6 AnyKernel3/anykernel.sh
