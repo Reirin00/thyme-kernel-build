@@ -23,6 +23,10 @@ on:
         description: 'KernelSU + SUSFS（false = 纯内核，用于隔离排查）'
         required: true
         default: 'true'
+      use_vendor_config:
+        description: '用设备原厂 .config（6522行）代替 cctv18 defconfig（795行）'
+        required: true
+        default: 'false'
 
 permissions:
   contents: write
@@ -36,6 +40,7 @@ jobs:
       DEFCONFIG: ${{ github.event.inputs.defconfig || 'thyme_defconfig' }}
       APPLY_FEATURES: ${{ github.event.inputs.apply_features || 'true' }}
       ENABLE_KSU: ${{ github.event.inputs.enable_ksu || 'true' }}
+      USE_VENDOR_CONFIG: ${{ github.event.inputs.use_vendor_config || 'false' }}
     steps:
       - name: Checkout Workflow Repo
         uses: actions/checkout@v4
@@ -204,7 +209,16 @@ jobs:
         working-directory: kernel
         run: |
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
-          make O=out ARCH=arm64 "$DEFCONFIG"
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            echo "===== 用设备原厂 .config（6522 行）====="
+            echo "  来源：从设备 boot.img 的 IKCFG 段解出来的，就是现在正在跑的那份"
+            echo "  目的：把变量压到只剩「内核源码版本」，排除 defconfig 差异"
+            cp "$GITHUB_WORKSPACE/patches/vendor_thyme_defconfig" arch/arm64/configs/vendor_thyme_defconfig
+            make O=out ARCH=arm64 vendor_thyme_defconfig
+          else
+            echo "===== 用 cctv18 的 defconfig（795 行）====="
+            make O=out ARCH=arm64 "$DEFCONFIG"
+          fi
 
       - name: Inject Kconfig Features & Resolve Dependencies
         if: env.APPLY_FEATURES == 'true'
