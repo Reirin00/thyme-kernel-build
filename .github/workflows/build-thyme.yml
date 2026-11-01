@@ -20,6 +20,9 @@ on:
         required: true
         default: 'true'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -361,3 +364,56 @@ jobs:
           name: thyme-kernel-${{ github.run_number }}
           path: ${{ env.ZIP_NAME }}
           retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: thyme-kernel-${{ github.run_number }}
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v4.19.157-perf-k${GITHUB_RUN_NUMBER}"
+          ZIP="thyme-kernel-${GITHUB_RUN_NUMBER}.zip"
+          [ -f "$ZIP" ] || { echo "!! 找不到 $ZIP"; ls -la; exit 1; }
+          MD5=$(md5sum "$ZIP" | cut -d' ' -f1)
+          IMG_SHA=$(sha256sum "$ZIP" | cut -d' ' -f1 | cut -c1-16)
+
+          {
+            echo "# 小米 10S（thyme）· 4.19.157 · KernelSU + SUSFS"
+            echo ""
+            echo "构建 #${GITHUB_RUN_NUMBER} · $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "\`\`\`"
+            echo "zip  md5: $MD5"
+            echo "zip size: $(stat -c%s "$ZIP") B"
+            echo "\`\`\`"
+            echo ""
+            echo "## 怎么刷"
+            echo ""
+            echo "**TWRP 刷 zip**（#15 验证过的路径）："
+            echo "\`\`\`"
+            echo "adb push $ZIP /sdcard/"
+            echo "# TWRP → Install → 选它 → Swipe"
+            echo "\`\`\`"
+            echo ""
+            echo "**不要用 SukiSU Manager 刷 zip** —— 它没有 AK3 的 update-binary + shell 环境，"
+            echo "必然报刷写失败。内核已内置 KSU，管理器只负责授权 app。"
+            echo ""
+            echo "## ⚠️ 未验证开机"
+            echo ""
+            echo "源码是 4.19.325 改 SUBLEVEL 冒充 157，关掉 MODVERSIONS 只是绕过 CRC 校验，"
+            echo "不等于 ABI 兼容。这个内核能不能启动、WiFi/音频/相机能不能用，全部未知。"
+            echo ""
+            echo "回退：刷回原厂 boot_a.img；AVB 拦就 \`fastboot --disable-verity --disable-verification flash vbmeta vbmeta_a.img\`"
+          } > notes.md
+
+          gh release create "$TAG" "$ZIP" \
+            --title "thyme 4.19.157 · KSU+SUSFS (k${GITHUB_RUN_NUMBER})" \
+            --notes-file notes.md \
+            --prerelease
