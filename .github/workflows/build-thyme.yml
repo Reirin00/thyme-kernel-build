@@ -328,16 +328,33 @@ jobs:
         if: env.APPLY_FEATURES == 'true'
         working-directory: kernel
         run: |
-          grep -E '^CONFIG_LOCALVERSION="-perf"$' out/.config
-          grep -E '^CONFIG_TCP_CONG_BBR=y$' out/.config
-          grep -E '^CONFIG_DEFAULT_TCP_CONG="bbr"$' out/.config
-          grep -E '^CONFIG_NET_SCH_FQ=y$' out/.config
-          grep -E '^CONFIG_ZSTD_COMPRESS=y$' out/.config
-          grep -E '^CONFIG_ZRAM_DEF_COMP_LZ4=y$' out/.config
-          grep -E '^CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y$' out/.config
-          grep -E '^CONFIG_MQ_IOSCHED_KYBER=y$' out/.config
-          ! grep -E '^CONFIG_KSM=y$' out/.config
-          ! grep -E '^CONFIG_UCLAMP_TASK=y$' out/.config
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            # OS3 config 模式：这棵树的基线是 Sky-Developers 的精简配置（809 行），
+            # 很多优化项本来就没开，不能按原来的清单硬卡。
+            # 只验一件事：LOCALVERSION 必须是 OS3 的那个（vermagic 全靠它）。
+            echo "===== OS3 config 模式校验 ====="
+            grep -E '^CONFIG_LOCALVERSION="-HyperOS3-A16-Sky-Developers' out/.config \
+              && echo "  [OK] LOCALVERSION 是 OS3 的" \
+              || { echo "  !! LOCALVERSION 不对，vermagic 会不匹配"; grep '^CONFIG_LOCALVERSION' out/.config; exit 1; }
+            echo "  .config 总行数: $(wc -l < out/.config)"
+            echo "  MODVERSIONS: $(grep '^CONFIG_MODVERSIONS' out/.config || echo '(未设置)')"
+            echo "  SUBLEVEL 检查: $(grep -E '^VERSION|^PATCHLEVEL|^SUBLEVEL' Makefile | tr '\n' ' ')"
+            echo "  已开的关键项:"
+            for k in KSU KSU_SUSFS KPROBES MODVERSIONS; do
+              printf "    %-16s %s\n" "$k" "$(grep -E "^CONFIG_${k}=" out/.config || echo '(未开)')"
+            done
+          else
+            grep -E '^CONFIG_LOCALVERSION="-perf"$' out/.config
+            grep -E '^CONFIG_TCP_CONG_BBR=y$' out/.config
+            grep -E '^CONFIG_DEFAULT_TCP_CONG="bbr"$' out/.config
+            grep -E '^CONFIG_NET_SCH_FQ=y$' out/.config
+            grep -E '^CONFIG_ZSTD_COMPRESS=y$' out/.config
+            grep -E '^CONFIG_ZRAM_DEF_COMP_LZ4=y$' out/.config
+            grep -E '^CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y$' out/.config
+            grep -E '^CONFIG_MQ_IOSCHED_KYBER=y$' out/.config
+            ! grep -E '^CONFIG_KSM=y$' out/.config
+            ! grep -E '^CONFIG_UCLAMP_TASK=y$' out/.config
+          fi
 
       - name: Compile Kernel Image
         working-directory: kernel
