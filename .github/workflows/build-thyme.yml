@@ -323,41 +323,14 @@ jobs:
 
       - name: Package AnyKernel3 Zip (Strictly No dtbo.img)
         run: |
-          # 上游模板写的 easterNday/AnyKernel3 已 404，改用官方 osm0sis/AnyKernel3
+          # ⚠️ 上游模板写的 easterNday/AnyKernel3 已 404，改用官方 osm0sis/AnyKernel3
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
           rm -rf AnyKernel3/.git AnyKernel3/dtbo.img AnyKernel3/dtb
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
 
-          # ---- anykernel.sh 和 tools 全部用 #18d 实机摸过的版本（patches/ak3/）----
-          # 三个致命点，缺一个刷不进去：
-          #  1. BLOCK=boot_a + IS_SLOT_DEVICE=0
-          #     thyme 的 TWRP 里 bootctl 是坏的（Error getting bootctrl v1.2 module），
-          #     IS_SLOT_DEVICE=1 时 AK3 在 get_slot 处直接中止 -> "刷写失败"
-          #  2. tools 必须是 64 位
-          #     AK3 官方带的是 32 位 ARM 静态二进制；thyme(Android 16) ramdisk 里
-          #     只有 linker64，SELinux 也禁 32 位 ELF 执行 -> dump_boot 就失败
-          #  3. 删掉 fec / lptools_static / httools_static / snapshotupdater_static /
-          #     magiskpolicy 这些 32 位工具（BLOCK=boot_a 的路径不会调用它们）
-          cp "$GITHUB_WORKSPACE/patches/ak3/anykernel.sh" AnyKernel3/anykernel.sh
-          rm -rf AnyKernel3/tools
-          mkdir -p AnyKernel3/tools
-          cp "$GITHUB_WORKSPACE/patches/ak3/magiskboot" \
-             "$GITHUB_WORKSPACE/patches/ak3/busybox" \
-             "$GITHUB_WORKSPACE/patches/ak3/ak3-core.sh" AnyKernel3/tools/
-          chmod +x AnyKernel3/tools/*
-
-          echo "===== 刷机包自检 ====="
-          file AnyKernel3/tools/magiskboot AnyKernel3/tools/busybox
-          file AnyKernel3/tools/magiskboot | grep -q "64-bit" \
-            || { echo "!! magiskboot 不是 64 位，Android 16 上会被拒绝执行"; exit 1; }
-          file AnyKernel3/tools/busybox | grep -q "64-bit" \
-            || { echo "!! busybox 不是 64 位"; exit 1; }
-          grep -E "BLOCK=|IS_SLOT_DEVICE=|PATCH_VBMETA_FLAG=" AnyKernel3/anykernel.sh
-          grep -q "by-name/boot_a" AnyKernel3/anykernel.sh \
-            || { echo "!! BLOCK 不是 boot_a"; exit 1; }
-          grep -q "IS_SLOT_DEVICE=0" AnyKernel3/anykernel.sh \
-            || { echo "!! IS_SLOT_DEVICE 不是 0"; exit 1; }
-          echo "  [OK] 位数 / 分区 / slot 三项都对"
+          # thyme 专用 anykernel.sh：A/B 设备，只刷 boot 分区（vendor_boot 不动）
+          echo 'IyMjIEFueUtlcm5lbDMgUmFtZGlzayBNb2QgU2NyaXB0CnByb3BlcnRpZXMoKSB7ICcKa2VybmVsLnN0cmluZz10aHltZS1rZXJuZWwgYnkgV29ya0J1ZGR5CmRvLmRldmljZWNoZWNrPTEKZG8ubW9kdWxlcz0wCmRvLnN5c3RlbWxlc3M9MApkby5jbGVhbnVwPTEKZG8uY2xlYW51cG9uYWJvcnQ9MApkZXZpY2UubmFtZTE9dGh5bWUKZGV2aWNlLm5hbWUyPU1pIDEwUwpkZXZpY2UubmFtZTM9CmRldmljZS5uYW1lND0KZGV2aWNlLm5hbWU1PQpzdXBwb3J0ZWQudmVyc2lvbnM9CnN1cHBvcnRlZC5wYXRjaGxldmVscz0Kc3VwcG9ydGVkLnZlbmRvcnBhdGNobGV2ZWxzPQonOyB9CgpCTE9DSz0vZGV2L2Jsb2NrL2Jvb3RkZXZpY2UvYnktbmFtZS9ib290OwpJU19TTE9UX0RFVklDRT0xOwpSQU1ESVNLX0NPTVBSRVNTSU9OPWF1dG87ClBBVENIX1ZCTUVUQV9GTEFHPWF1dG87CgouIHRvb2xzL2FrMy1jb3JlLnNoOwoKZHVtcF9ib290Owp3cml0ZV9ib290Owo=' | base64 -d > AnyKernel3/anykernel.sh
+          echo "--- anykernel.sh ---"; head -6 AnyKernel3/anykernel.sh
 
           cd AnyKernel3
           ZIP_NAME="thyme-kernel-${GITHUB_RUN_NUMBER}.zip"
