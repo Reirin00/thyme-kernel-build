@@ -85,7 +85,8 @@ jobs:
           echo "会引入逻辑错误、WiFi 息屏断流、频率抖动等运行期问题。"
           echo ""
           echo "如需重新引入，必须先修正上述问题，并单独验证。"
-      - name: Integrate KernelSU v1.0.5 + SUSFS (4.19)
+      - name: Integrate KernelSU v0.9.5 + SUSFS (4.19)
+        if: env.ENABLE_KSU == 'true'
         working-directory: kernel
         run: |
           set -euo pipefail
@@ -418,7 +419,7 @@ jobs:
             echo "回退：刷回原厂 boot_a.img；AVB 拦就 \`fastboot --disable-verity --disable-verification flash vbmeta vbmeta_a.img\`"
           } > notes.md
 
-          gh release create "$TAG" "$ZIP" \
+          gh release create "$TAG" "$ZIP" -R "${GITHUB_REPOSITORY}" \
             --title "thyme 4.19.157 · KSU+SUSFS (k${GITHUB_RUN_NUMBER})" \
             --notes-file notes.md \
             --prerelease
