@@ -103,6 +103,29 @@ jobs:
           echo "  内置 SUSFS 选项（builtin 原生自带，与第 2 步的 simonpunk 补丁可能重叠）:"
           grep -c "^config KSU_SUSFS" KernelSU/kernel/Kconfig || echo "    0"
 
+          # ---- 让 SukiSU 的编译单元能看到 simonpunk susfs.h 里的声明 ----
+          # SukiSU builtin 的 kernel_includes.h 里没有任何 susfs 头，
+          # 但 pkg_observer.c / supercall/dispatch.c 会直接调
+          #   susfs_parse_priority_app_strings() / susfs_set_priority_uid_filter()
+          # 这两个函数由 simonpunk 的 fs/susfs.c 提供、声明在 include/linux/susfs.h。
+          # 不 include 就是 "call to undeclared function"（#11 实测）。
+          if ! grep -q "linux/susfs.h" KernelSU/kernel/kernel_includes.h; then
+            # kernel_includes.h 整个文件就是一行一个 #include，末尾追加最安全。
+            # （不要用 sed 0,/pat/s// 那种写法，之前已经因为匹配不到而静默失败过。）
+            echo '#include <linux/susfs.h>' >> KernelSU/kernel/kernel_includes.h
+            tail -3 KernelSU/kernel/kernel_includes.h
+            grep -q "linux/susfs.h" KernelSU/kernel/kernel_includes.h \
+              || { echo "  !! 追加 susfs.h 失败"; exit 1; }
+            echo "  [OK] kernel_includes.h 已 include susfs.h"
+          fi
+
+          # ---- 关掉 unused-function 的 -Werror ----
+          # fs/susfs.c 里 susfs_switch_to_ksu_domain / susfs_restore_creds
+          # 只在 CONFIG_KSU_SUSFS_SUS_SU 打开时才被调用，我们没开，于是被判 unused。
+          grep -q "Wno-unused-function" KernelSU/kernel/Makefile \
+            || echo "ccflags-y += -Wno-unused-function" >> KernelSU/kernel/Makefile
+          echo "  [OK] 已放宽 Wno-unused-function"
+
       # ===== 2) simonpunk SUSFS（gki-android15-6.6）=====
       - name: "2. Apply simonpunk SUSFS (gki-android15-6.6)"
         working-directory: kernel
