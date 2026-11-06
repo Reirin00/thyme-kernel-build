@@ -148,7 +148,7 @@ jobs:
           if grep -qE "SUSFS_IS_INODE_(OPEN_REDIRECT|SUS_MAP)" fs/proc/base.c; then
             if ! grep -q "linux/susfs_def.h" fs/proc/base.c; then
               echo "  base.c 用了 SUSFS 宏但缺 include，补上"
-              sed -i '0,/#include <linux\/dma-buf.h>/s//#include <linux\/dma-buf.h>\n#include <linux\/susfs_def.h>/' fs/proc/base.c
+              sed -i '/#include <linux\/dma-buf.h>/a #include <linux/susfs_def.h>' fs/proc/base.c
             fi
             grep -n "susfs_def.h" fs/proc/base.c || { echo "  !! 补 include 失败"; exit 1; }
           fi
