@@ -146,11 +146,11 @@ jobs:
           # 结果宏变成未声明函数，编译直接失败（#7 就死在这两行）。
           # susfs_def.h 有 include guard，重复包含无害，所以直接补。
           if grep -qE "SUSFS_IS_INODE_(OPEN_REDIRECT|SUS_MAP)" fs/proc/base.c; then
-            if ! grep -q "linux/susfs_def.h" fs/proc/base.c; then
-              echo "  base.c 用了 SUSFS 宏但缺 include，补上"
-              sed -i '/#include <linux\/dma-buf.h>/a #include <linux/susfs_def.h>' fs/proc/base.c
-            fi
-            grep -n "susfs_def.h" fs/proc/base.c || { echo "  !! 补 include 失败"; exit 1; }
+            echo "  base.c 用到 SUSFS 宏，检查 include"
+            python3 "$GITHUB_WORKSPACE/patches/fix_base_include.py" fs/proc/base.c
+            grep -q "linux/susfs_def.h" fs/proc/base.c \
+              && echo "    [OK] include 就位" \
+              || { echo "    !! 补 include 失败"; exit 1; }
           fi
           echo "  [OK] SUSFS 文件处理完毕"
           echo "===== 校验 ====="
