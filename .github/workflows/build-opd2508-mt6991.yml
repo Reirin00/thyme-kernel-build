@@ -127,15 +127,20 @@ jobs:
           # 以及 CONFIG_KSU_SUSFS_SUS_MAP 在 /proc/pid/maps 里的隐藏。
           # 跳过它不影响编译（susfs.c 里该函数的定义仍在，只是少一个调用点），
           # 其余 30 多个文件的 hunk 实测都能打上。
-          patch -p1 --exclude='fs/proc/base.c' -i "$PATCH" || {
-            echo "!! SUSFS 补丁有 hunk 失败，列出 reject："
-            find . -name '*.rej' | head -20
+          # 注意：GNU patch 没有 --exclude（那是 diff 的选项）。
+          # 用「允许失败 + 白名单 reject」的方式：只接受 fs/proc/base.c 的 reject。
+          patch -p1 -i "$PATCH" || true
+          OTHER_REJ=$(find . -name '*.rej' ! -name 'base.c.rej' | head -20)
+          if [ -n "$OTHER_REJ" ]; then
+            echo "!! 除 base.c 之外还有 reject，不能继续："
+            echo "$OTHER_REJ"
             exit 1
-          }
+          fi
           if [ -f fs/proc/base.c.rej ]; then
-            echo "  (base.c 已按计划跳过)"
+            echo "  (base.c 按计划跳过，rej 已清除)"
             rm -f fs/proc/base.c.rej
           fi
+          echo "  [OK] 其余文件全部打上"
           echo "===== 校验 ====="
           ls -la fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h
           grep -n "susfs" fs/Makefile || { echo "!! fs/Makefile 没有 susfs.o"; exit 1; }
