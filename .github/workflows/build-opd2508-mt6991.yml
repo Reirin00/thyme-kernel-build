@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       kernel_repo:
-        description: 'Kernel source repository'
+        description: 'Kernel source repository（必须是一加自家 GKI 树，AOSP common 打不上风驰补丁）'
         required: true
-        default: 'https://android.googlesource.com/kernel/common'
+        default: 'https://github.com/OnePlusOSS/android_kernel_oneplus_mt6991'
       kernel_branch:
-        description: 'Kernel branch (GKI 2.0)'
+        description: 'Kernel branch（OPD2508 = pad 2，MT6991）'
         required: true
-        default: 'android15-6.6'
+        default: 'oneplus/mt6991_b_16.0.0_pad_2'
       clang_version:
         description: 'AOSP prebuilt clang（实测 main 分支只剩 r547379，旧的 r510928/r520198 已 400）'
         required: true
@@ -30,8 +30,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     env:
-      KERNEL_REPO: ${{ github.event.inputs.kernel_repo || 'https://android.googlesource.com/kernel/common' }}
-      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'android15-6.6' }}
+      KERNEL_REPO: ${{ github.event.inputs.kernel_repo || 'https://github.com/OnePlusOSS/android_kernel_oneplus_mt6991' }}
+      KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'oneplus/mt6991_b_16.0.0_pad_2' }}
       CLANG_VER: ${{ github.event.inputs.clang_version || 'clang-r547379' }}
       APPLY_ALL_SCHED: ${{ github.event.inputs.apply_all_sched_patches || 'false' }}
 
