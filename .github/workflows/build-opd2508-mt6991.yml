@@ -97,8 +97,11 @@ jobs:
           grep -n "kernelsu/Kconfig" drivers/Kconfig
           echo "  内置 feature 目录:"
           ls KernelSU/kernel/feature/ 2>/dev/null | head -10 || true
-          echo "  KPM 相关:"
-          ls KernelSU/kernel/KPM 2>/dev/null | head -5 || grep -rn "CONFIG_KPM" KernelSU/kernel/Kconfig | head -3
+          echo "  KPM（builtin 分支放在 extension/ 目录，Kconfig 里是 config KPM）:"
+          ls KernelSU/kernel/extension 2>/dev/null | head -8 || echo "    (extension 目录不存在)"
+          grep -n "^config KPM" KernelSU/kernel/Kconfig || echo "    (Kconfig 里没有 config KPM)"
+          echo "  内置 SUSFS 选项（builtin 原生自带，与第 2 步的 simonpunk 补丁可能重叠）:"
+          grep -c "^config KSU_SUSFS" KernelSU/kernel/Kconfig || echo "    0"
 
       # ===== 2) simonpunk SUSFS（gki-android15-6.6）=====
       - name: "2. Apply simonpunk SUSFS (gki-android15-6.6)"
@@ -212,6 +215,11 @@ jobs:
           # Kconfig entry，conf 阶段会被静默丢弃。这里补一行真实符号，保证风驰调度器
           # 真正编进去；若补丁版本不同导致该符号也不存在，这行同样会被安全丢弃。
           grep -q '^CONFIG_HMBIRD_SCHED=y$' "$CFG" || echo 'CONFIG_HMBIRD_SCHED=y' >> "$CFG"
+          # 同理：SukiSU 的 Kconfig 里符号是 CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          # （全大写 OR），需求给的是小写 or，那一行会被 conf 静默丢弃。
+          # 保留原行不动，另补一行正确拼写，保证 cmdline 伪装真的生效。
+          grep -q '^CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y$' "$CFG" \
+            || echo 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' >> "$CFG"
 
           echo "===== 追加后: $(wc -l < $CFG) 行 ====="
           tail -35 "$CFG"
