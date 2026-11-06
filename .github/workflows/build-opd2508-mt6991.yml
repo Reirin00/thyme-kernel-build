@@ -257,7 +257,21 @@ jobs:
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           echo "cpus: $(nproc)  mem: $(free -g | awk '/^Mem:/{print $2}')G"
-          make O=out ARCH=arm64 LLVM=1 Image -j"$(nproc)" 2>&1 | tail -80
+          # 不要直接 pipe 给 tail：编译错误会被截掉，日志里只剩 Makefile 的 "Error 2"。
+          set +e
+          make O=out ARCH=arm64 LLVM=1 Image -j"$(nproc)" > /tmp/build.log 2>&1
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ]; then
+            echo "===== 编译失败（exit $RC）====="
+            echo "--- error: 前 6 条 ---"
+            grep -n "error:" /tmp/build.log | head -6 || echo "(没有 error: 行)"
+            echo "--- fatal / undefined ---"
+            grep -nE "fatal error|undefined reference" /tmp/build.log | head -6 || true
+            echo "--- 最后 80 行 ---"
+            tail -80 /tmp/build.log
+            exit 1
+          fi
           echo "===== 产物 ====="
           ls -la out/arch/arm64/boot/Image
           strings out/arch/arm64/boot/Image | grep -m1 "Linux version"
