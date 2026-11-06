@@ -15,9 +15,9 @@ on:
         required: true
         default: 'android15-6.6'
       clang_version:
-        description: 'AOSP prebuilt clang'
+        description: 'AOSP prebuilt clang（实测 main 分支只剩 r547379，旧的 r510928/r520198 已 400）'
         required: true
-        default: 'clang-r510928'
+        default: 'clang-r547379'
       apply_all_sched_patches:
         description: '打 mt6991 分支下全部 patch（默认只打 pad2 的）'
         required: true
@@ -32,7 +32,7 @@ jobs:
     env:
       KERNEL_REPO: ${{ github.event.inputs.kernel_repo || 'https://android.googlesource.com/kernel/common' }}
       KERNEL_BRANCH: ${{ github.event.inputs.kernel_branch || 'android15-6.6' }}
-      CLANG_VER: ${{ github.event.inputs.clang_version || 'clang-r510928' }}
+      CLANG_VER: ${{ github.event.inputs.clang_version || 'clang-r547379' }}
       APPLY_ALL_SCHED: ${{ github.event.inputs.apply_all_sched_patches || 'false' }}
 
     steps:
@@ -65,6 +65,16 @@ jobs:
           URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/${CLANG_VER}.tar.gz"
           echo "下载: $URL"
           curl -LSs "$URL" -o clang.tar.gz
+          SZ=$(stat -c%s clang.tar.gz)
+          echo "  下载大小: $SZ B"
+          # gitiles 对不存在的 tag 返回 HTTP 400 + 一段 HTML，tar 会立刻报
+          # "Child returned status 1"。先验 gzip magic，失败就给清楚的原因。
+          MAGIC=$(head -c2 clang.tar.gz | od -An -tx1 | tr -d ' \n')
+          if [ "$MAGIC" != "1f8b" ]; then
+            echo "!! 下载内容不是 gzip（magic=$MAGIC），URL 可能失效"
+            head -c 200 clang.tar.gz; echo
+            exit 1
+          fi
           tar -xzf clang.tar.gz -C clang
           rm -f clang.tar.gz
           echo "===== clang 版本 ====="
