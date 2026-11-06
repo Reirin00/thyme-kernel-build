@@ -119,6 +119,28 @@ jobs:
             echo "  [OK] kernel_includes.h 已 include susfs.h"
           fi
 
+          # ---- 补 SukiSU Kconfig 缺的 KSU_SUSFS_PRIORITY_UID_FILTER ----
+          # simonpunk 的 susfs.c(1376行起) / susfs.h(244行起) 把
+          #   susfs_set_priority_uid_filter / susfs_parse_priority_app_strings
+          # 整块包在 #ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 里，
+          # 但 SukiSU builtin 的 Kconfig 没有这个符号，而 pkg_observer.c / dispatch.c
+          # 又无条件调用 -> 编译期 "call to undeclared function"。
+          # Kconfig 用 tab 缩进会破坏 YAML，所以这里用 printf 写。
+          if ! grep -q "KSU_SUSFS_PRIORITY_UID_FILTER" KernelSU/kernel/Kconfig; then
+            {
+              printf '\n'
+              printf 'config KSU_SUSFS_PRIORITY_UID_FILTER\n'
+              printf '\tbool "SUSFS: priority uid filter"\n'
+              printf '\tdepends on KSU_SUSFS\n'
+              printf '\tdefault y\n'
+              printf '\thelp\n'
+              printf '\t  Enable susfs priority uid filter.\n'
+            } >> KernelSU/kernel/Kconfig
+            grep -q "KSU_SUSFS_PRIORITY_UID_FILTER" KernelSU/kernel/Kconfig \
+              && echo "  [OK] Kconfig 已补 KSU_SUSFS_PRIORITY_UID_FILTER" \
+              || { echo "  !! Kconfig 补写失败"; exit 1; }
+          fi
+
           # ---- 关掉 unused-function 的 -Werror ----
           # fs/susfs.c 里 susfs_switch_to_ksu_domain / susfs_restore_creds
           # 只在 CONFIG_KSU_SUSFS_SUS_SU 打开时才被调用，我们没开，于是被判 unused。
@@ -246,6 +268,9 @@ jobs:
           CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_or_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+
+          # SukiSU builtin 无条件调用这两个函数，必须开
+          CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
 
           # True HMBIRD / SCX Scheduler for MT6991
           CONFIG_HMBIRD_SCHED_GKI=y
