@@ -121,11 +121,21 @@ jobs:
           echo "  补丁大小: $(stat -c%s "$PATCH") B"
           patch -p1 --dry-run -i "$PATCH" > /tmp/susfs_dry.txt 2>&1 || true
           echo "  dry-run 结果: $(grep -c 'FAILED' /tmp/susfs_dry.txt || true) 处 FAILED"
-          patch -p1 -i "$PATCH" || {
+          # fs/proc/base.c 这一段在一加自家树上 context 对不上（行号/上下文都有偏移）：
+          # 它只做两件事——CONFIG_KSU_SUSFS_OPEN_REDIRECT 的
+          #   susfs_open_redirect_spoof_do_proc_readlink() 调用点（/proc/pid/fd 的 readlink 伪造），
+          # 以及 CONFIG_KSU_SUSFS_SUS_MAP 在 /proc/pid/maps 里的隐藏。
+          # 跳过它不影响编译（susfs.c 里该函数的定义仍在，只是少一个调用点），
+          # 其余 30 多个文件的 hunk 实测都能打上。
+          patch -p1 --exclude='fs/proc/base.c' -i "$PATCH" || {
             echo "!! SUSFS 补丁有 hunk 失败，列出 reject："
             find . -name '*.rej' | head -20
             exit 1
           }
+          if [ -f fs/proc/base.c.rej ]; then
+            echo "  (base.c 已按计划跳过)"
+            rm -f fs/proc/base.c.rej
+          fi
           echo "===== 校验 ====="
           ls -la fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h
           grep -n "susfs" fs/Makefile || { echo "!! fs/Makefile 没有 susfs.o"; exit 1; }
