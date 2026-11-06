@@ -137,10 +137,22 @@ jobs:
             exit 1
           fi
           if [ -f fs/proc/base.c.rej ]; then
-            echo "  (base.c 按计划跳过，rej 已清除)"
+            echo "  (base.c 有 reject，rej 已清除)"
             rm -f fs/proc/base.c.rej
           fi
-          echo "  [OK] 其余文件全部打上"
+
+          # ⚠️ patch 对同一文件是「部分应用」：base.c 里加 SUSFS 宏调用点的 hunk 成功了，
+          # 但加 #include <linux/susfs_def.h> 的那个 hunk 失败 ——
+          # 结果宏变成未声明函数，编译直接失败（#7 就死在这两行）。
+          # susfs_def.h 有 include guard，重复包含无害，所以直接补。
+          if grep -qE "SUSFS_IS_INODE_(OPEN_REDIRECT|SUS_MAP)" fs/proc/base.c; then
+            if ! grep -q "linux/susfs_def.h" fs/proc/base.c; then
+              echo "  base.c 用了 SUSFS 宏但缺 include，补上"
+              sed -i '0,/#include <linux\/dma-buf.h>/s//#include <linux\/dma-buf.h>\n#include <linux\/susfs_def.h>/' fs/proc/base.c
+            fi
+            grep -n "susfs_def.h" fs/proc/base.c || { echo "  !! 补 include 失败"; exit 1; }
+          fi
+          echo "  [OK] SUSFS 文件处理完毕"
           echo "===== 校验 ====="
           ls -la fs/susfs.c include/linux/susfs.h include/linux/susfs_def.h
           grep -n "susfs" fs/Makefile || { echo "!! fs/Makefile 没有 susfs.o"; exit 1; }
