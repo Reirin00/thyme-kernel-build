@@ -380,7 +380,18 @@ jobs:
           test -f out/arch/arm64/boot/Image
           VER_STR=$(strings out/arch/arm64/boot/Image | grep -m1 "Linux version 4.19")
           echo "Detected: $VER_STR"
-          echo "$VER_STR" | grep -q "4.19.157-perf " || exit 1
+          # vermagic 要看设备实际跑的是什么，不能硬编码。
+          # 2026-11-01 实测：设备已刷 OS3，内核是 4.19.325-HyperOS3-A16-Sky-Developers+
+          # （从 boot_a.img 拉出来的 Image 直接读的 strings），
+          # 所以 OS3 config 模式下要校验 325-HyperOS3，而不是老的 4.19.157-perf。
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            echo "$VER_STR" | grep -q "4.19.325-HyperOS3-A16-Sky-Developers" \
+              || { echo "!! vermagic 不是 OS3 的，vendor 模块会拒载"; exit 1; }
+            echo "  [OK] vermagic 与设备一致（4.19.325-HyperOS3-A16-Sky-Developers）"
+          else
+            echo "$VER_STR" | grep -q "4.19.157-perf " || exit 1
+            echo "  [OK] vermagic 是老 MIUI13 基线（4.19.157-perf）"
+          fi
 
       - name: Package AnyKernel3 Zip (Strictly No dtbo.img)
         run: |
