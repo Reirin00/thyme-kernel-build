@@ -59,6 +59,24 @@ jobs:
           echo "===== 当前 commit ====="
           git log -1 --format='%H %s'
 
+      - name: Lock vermagic (drop -dirty)
+        working-directory: kernel
+        run: |
+          # 打完 SukiSU/SUSFS/SCX 补丁后源码树是「脏」的，
+          # scripts/setlocalversion 会追加 -dirty：
+          #   实际产物 vermagic = 6.6.89-4k-g803322bc6bf8-dirty
+          # vendor 模块按原厂 vermagic 编，带 -dirty 会全部拒载 -> 卡开机。
+          # 这里把 dirty 检测和 "+" 都禁掉，保留 LOCALVERSION 与 git hash。
+          if [ -f scripts/setlocalversion ]; then
+            sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/' scripts/setlocalversion
+            sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
+            sed -i 's/echo "-dirty"/# echo "-dirty"/g' scripts/setlocalversion
+            echo "=== setlocalversion 里残留的 dirty 引用 ==="
+            grep -n "dirty" scripts/setlocalversion || echo "  (已清理干净)"
+          fi
+          echo "=== Makefile 版本 ==="
+          grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION" Makefile
+
       - name: Clone AOSP prebuilt clang
         run: |
           mkdir -p clang
