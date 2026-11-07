@@ -68,11 +68,17 @@ jobs:
           # vendor 模块按原厂 vermagic 编，带 -dirty 会全部拒载 -> 卡开机。
           # 这里把 dirty 检测和 "+" 都禁掉，保留 LOCALVERSION 与 git hash。
           if [ -f scripts/setlocalversion ]; then
-            sed -i 's/printf "%s" -dirty/# printf "%s" -dirty/' scripts/setlocalversion
-            sed -i 's/echo "+"/# echo "+"/g' scripts/setlocalversion
-            sed -i 's/echo "-dirty"/# echo "-dirty"/g' scripts/setlocalversion
-            echo "=== setlocalversion 里残留的 dirty 引用 ==="
-            grep -n "dirty" scripts/setlocalversion || echo "  (已清理干净)"
+            # 实测这棵树的 scm_version() 里是单引号：
+            #   printf '%s' -dirty
+            # 之前用双引号写的 sed 匹配不到，所以 #14 打出来还是带 -dirty。
+            # 两条调用路径（CONFIG_LOCALVERSION_AUTO=y 和 --short）都会走到这里，
+            # 直接把这一行注释掉，git hash 保留、dirty 去掉。
+            sed -i "s|printf '%s' -dirty|: # printf '%s' -dirty|" scripts/setlocalversion
+            sed -i 's|echo "+"|: # echo "+"|g' scripts/setlocalversion
+            echo "=== 改后仍含 -dirty 的行（应为空）==="
+            grep -n "printf '%s' -dirty" scripts/setlocalversion || echo "  [OK] 已注释"
+            echo "=== 上下文确认 ==="
+            sed -n '145,152p' scripts/setlocalversion
           fi
           echo "=== Makefile 版本 ==="
           grep -E "^VERSION|^PATCHLEVEL|^SUBLEVEL|^EXTRAVERSION" Makefile
