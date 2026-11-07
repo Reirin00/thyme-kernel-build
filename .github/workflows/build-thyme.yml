@@ -447,7 +447,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v4.19.157-perf-k${GITHUB_RUN_NUMBER}"
+          # tag 跟着实际 vermagic 走，别再写死 157（设备现在是 OS3 / 325）
+          if [ "$USE_VENDOR_CONFIG" = "true" ]; then
+            TAG="os3-4.19.325-k${GITHUB_RUN_NUMBER}"
+            TITLE="thyme OS3 4.19.325 · KSU+SUSFS (k${GITHUB_RUN_NUMBER})"
+          else
+            TAG="v4.19.157-perf-k${GITHUB_RUN_NUMBER}"
+            TITLE="thyme 4.19.157 · KSU+SUSFS (k${GITHUB_RUN_NUMBER})"
+          fi
           ZIP="thyme-kernel-${GITHUB_RUN_NUMBER}.zip"
           [ -f "$ZIP" ] || { echo "!! 找不到 $ZIP"; ls -la; exit 1; }
           MD5=$(md5sum "$ZIP" | cut -d' ' -f1)
@@ -483,6 +490,6 @@ jobs:
           } > notes.md
 
           gh release create "$TAG" "$ZIP" -R "${GITHUB_REPOSITORY}" \
-            --title "thyme 4.19.157 · KSU+SUSFS (k${GITHUB_RUN_NUMBER})" \
+            --title "$TITLE" \
             --notes-file notes.md \
             --prerelease
